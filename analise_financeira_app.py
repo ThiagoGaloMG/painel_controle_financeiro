@@ -353,7 +353,7 @@ def carregar_mapeamento_ticker_cvm():
 20249;ITUB3;ITAU UNIBANCO HOLDING S.A.
 22327;JALL3;JALLES MACHADO S.A.
 20307;JBSS3;JBS S.A.
-22645;JFEN3;JOAO FORTES ENGENHARIA S.A.
+22645;JFEN3;JOAO FORTES ENGENHARia S.A.
 2441;JHSF3;JHSF PARTICIPACOES S.A.
 25750;JOPA4;JOSAPAR JOAQUIM OLIVEIRA S.A. PARTICIPACOES
 25750;JSLG3;JSL S.A.
@@ -723,14 +723,23 @@ def ui_controle_financeiro():
 # ==============================================================================
 
 def calcular_beta(ticker, ibov_data, periodo_beta):
+    """Calcula o Beta de uma ação em relação ao Ibovespa de forma robusta."""
     dados_acao = yf.download(ticker, period=periodo_beta, progress=False)
-    if dados_acao.empty or 'Adj Close' not in dados_acao.columns: return 1.0
+    if dados_acao.empty or 'Adj Close' not in dados_acao.columns:
+        return 1.0
+
+    # CORREÇÃO: Alinha os dataframes e remove dias não negociados em ambos
     dados_combinados = pd.concat([dados_acao['Adj Close'], ibov_data['Adj Close']], axis=1).dropna()
     dados_combinados.columns = [ticker, '^BVSP']
+    
     retornos_mensais = dados_combinados.resample('M').ffill().pct_change().dropna()
-    if len(retornos_mensais) < 2: return 1.0
+
+    if len(retornos_mensais) < 2:
+        return 1.0
+
     covariancia = retornos_mensais.cov().iloc[0, 1]
     variancia_mercado = retornos_mensais['^BVSP'].var()
+    
     return covariancia / variancia_mercado if variancia_mercado != 0 else 1.0
 
 def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params):
