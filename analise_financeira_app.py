@@ -571,26 +571,31 @@ def ui_controle_financeiro():
                 
                 categoria_final = None
                 sub_arca = None
+                
+                # CORREÇÃO: Lógica do formulário para exibir o campo de categoria correto
+                category_placeholder = st.empty()
 
                 if tipo == "Investimento":
-                    categoria_selecionada = st.selectbox("Categoria (Metodologia ARCA)", 
-                                                         options=st.session_state.categories['Investimento'], 
-                                                         key="arca_cat")
+                    with category_placeholder.container():
+                        categoria_selecionada = st.selectbox("Categoria (Metodologia ARCA)", 
+                                                             options=st.session_state.categories['Investimento'], 
+                                                             key="arca_cat")
                     categoria_final = categoria_selecionada
                     sub_arca = categoria_selecionada
                 else:
-                    label_categoria = "Categoria" # Label genérico
-                    opcoes_categoria = st.session_state.categories[tipo] + ["--- Adicionar Nova Categoria ---"]
-                    categoria_selecionada = st.selectbox(label_categoria, 
-                                                         options=opcoes_categoria, 
-                                                         key=f"cat_{tipo}")
-                    
-                    if categoria_selecionada == "--- Adicionar Nova Categoria ---":
-                        nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
-                        if nova_categoria:
-                            categoria_final = nova_categoria
-                    else:
-                        categoria_final = categoria_selecionada
+                    with category_placeholder.container():
+                        label_categoria = "Categoria" # Label genérico
+                        opcoes_categoria = st.session_state.categories[tipo] + ["--- Adicionar Nova Categoria ---"]
+                        categoria_selecionada = st.selectbox(label_categoria, 
+                                                             options=opcoes_categoria, 
+                                                             key=f"cat_{tipo}")
+                        
+                        if categoria_selecionada == "--- Adicionar Nova Categoria ---":
+                            nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
+                            if nova_categoria:
+                                categoria_final = nova_categoria
+                        else:
+                            categoria_final = categoria_selecionada
 
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 descricao = st.text_input("Descrição (opcional)")
