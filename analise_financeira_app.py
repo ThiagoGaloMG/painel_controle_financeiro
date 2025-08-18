@@ -24,29 +24,79 @@ st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", pa
 # Estilo CSS para um tema escuro e profissional, inspirado nas imagens
 st.markdown("""
 <style>
+    /* Paleta de Cores Profissional */
+    :root {
+        --primary-bg: #0E1117;
+        --secondary-bg: #161B22;
+        --widget-bg: #282828;
+        --primary-accent: #0072F5;
+        --secondary-accent: #17C964;
+        --text-color: #ECEDEE;
+        --secondary-text-color: #8A94A6;
+        --border-color: #30363D;
+    }
+
+    body {
+        color: var(--text-color);
+        background-color: var(--primary-bg);
+    }
+
     .main .block-container {
         padding-top: 2rem;
+        padding-bottom: 2rem;
     }
+    
+    /* Título com Gradiente */
+    h1 {
+        background: -webkit-linear-gradient(45deg, var(--primary-accent), var(--secondary-accent));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    /* Abas */
     .stTabs [data-baseweb="tab-list"] {
         gap: 24px;
     }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
         white-space: pre-wrap;
-        background-color: #1E1E1E;
-        border-radius: 4px 4px 0px 0px;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        background-color: var(--secondary-bg);
+        border-radius: 8px 8px 0px 0px;
+        border-bottom: 2px solid transparent;
+        transition: all 0.3s;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #282828;
+        background-color: var(--widget-bg);
+        border-bottom: 2px solid var(--primary-accent);
     }
+
+    /* Métricas */
     .stMetric {
-        border: 1px solid #444;
+        border: 1px solid var(--border-color);
         border-radius: 8px;
-        padding: 15px;
-        background-color: #282828;
+        padding: 20px;
+        background-color: var(--widget-bg);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Botões */
+    .stButton > button {
+        border-radius: 8px;
+        border: 1px solid var(--primary-accent);
+        background-color: var(--primary-accent);
+        color: white;
+        transition: all 0.3s;
+    }
+    .stButton > button:hover {
+        background-color: transparent;
+        color: var(--primary-accent);
+    }
+
+    /* Expanders */
+    [data-testid="stExpander"] {
+        background-color: var(--widget-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
     }
 </style>""", unsafe_allow_html=True)
 
@@ -552,7 +602,8 @@ def ui_controle_financeiro():
         st.subheader("Distribuição ARCA")
         df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
         if not df_arca.empty:
-            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos", hole=.3)
+            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos", hole=.3, template="plotly_dark")
+            fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
             fig_arca.update_traces(textinfo='percent+label')
             st.plotly_chart(fig_arca, use_container_width=True)
         else:
@@ -581,11 +632,13 @@ def ui_controle_financeiro():
         df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
         col1, col2 = st.columns(2)
         with col1:
-            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group')
+            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark")
+            fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
             df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
-            fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True)
+            fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
+            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
             st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
@@ -757,8 +810,8 @@ def ui_valuation():
                 st.divider()
                 tab_g, tab_d = st.tabs(["📊 Gráficos", "🔢 Tabela de Dados"])
                 with tab_g:
-                    st.plotly_chart(px.bar(x=resultados['hist_nopat'].index, y=resultados['hist_nopat'].values, title='Histórico de NOPAT'), use_container_width=True)
-                    st.plotly_chart(px.bar(x=resultados['hist_fco'].index, y=resultados['hist_fco'].values, title='Histórico de FCO'), use_container_width=True)
+                    st.plotly_chart(px.bar(x=resultados['hist_nopat'].index, y=resultados['hist_nopat'].values, title='Histórico de NOPAT', template="plotly_dark").update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'), use_container_width=True)
+                    st.plotly_chart(px.bar(x=resultados['hist_fco'].index, y=resultados['hist_fco'].values, title='Histórico de FCO', template="plotly_dark").update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'), use_container_width=True)
                 with tab_d:
                     df_display = pd.DataFrame.from_dict(resultados, orient='index', columns=['Valor'])
                     st.dataframe(df_display.drop(['hist_nopat', 'hist_fco', 'hist_roic', 'wacc_series']), use_container_width=True)
