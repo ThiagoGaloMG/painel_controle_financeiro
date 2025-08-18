@@ -12,6 +12,7 @@ import io
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+import time
 
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
@@ -693,7 +694,27 @@ def ui_controle_financeiro():
 
     with st.expander("📜 Histórico de Transações", expanded=True):
         if not df_trans.empty:
-            df_para_editar = df_trans.copy()
+            # --- FILTROS DO HISTÓRICO ---
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                tipo_filtro = st.selectbox("Filtrar por tipo", ["Todos"] + list(df_trans['Tipo'].unique()), key="filter_type")
+            with col2:
+                desc_filtro = st.text_input("Buscar na descrição...", key="filter_desc")
+            with col3:
+                data_inicio = st.date_input("Data início", df_trans['Data'].min(), key="filter_start_date")
+            with col4:
+                data_fim = st.date_input("Data fim", df_trans['Data'].max(), key="filter_end_date")
+
+            df_filtrado = df_trans.copy()
+            if tipo_filtro != "Todos":
+                df_filtrado = df_filtrado[df_filtrado['Tipo'] == tipo_filtro]
+            if desc_filtro:
+                df_filtrado = df_filtrado[df_filtrado['Descrição'].str.contains(desc_filtro, case=False, na=False)]
+            
+            df_filtrado = df_filtrado[(df_filtrado['Data'].dt.date >= data_inicio) & (df_filtrado['Data'].dt.date <= data_fim)]
+            
+            # Tabela de edição
+            df_para_editar = df_filtrado.copy()
             df_para_editar['Excluir'] = False
             
             colunas_config = {
@@ -971,3 +992,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
