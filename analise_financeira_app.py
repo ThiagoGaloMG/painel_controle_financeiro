@@ -583,14 +583,14 @@ def executar_analise_completa(ticker_map, demonstrativos, market_data, params, p
     todos_os_resultados = []
     total_empresas = len(ticker_map)
 
-    for index, row in ticker_map.iterrows():
+    for i, (index, row) in enumerate(ticker_map.iterrows()):
         ticker = row['TICKER']
         codigo_cvm = int(row['CD_CVM'])
         ticker_sa = f"{ticker}.SA"
 
         # Atualiza a interface do Streamlit
-        progress = (index + 1) / total_empresas
-        progress_bar.progress(progress, text=f"Analisando {index+1}/{total_empresas}: {ticker}")
+        progress = (i + 1) / total_empresas
+        progress_bar.progress(progress, text=f"Analisando {i+1}/{total_empresas}: {ticker}")
         
         try:
             resultados, _ = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params)
@@ -745,3 +745,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
