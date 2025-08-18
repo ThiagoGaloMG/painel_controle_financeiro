@@ -477,7 +477,6 @@ def inicializar_session_state():
     if 'categories' not in st.session_state:
         st.session_state.categories = {'Receita': ['Salário', 'Freelance'], 'Despesa': ['Moradia', 'Alimentação', 'Transporte'], 'Investimento': ['Ações BR', 'FIIs', 'Ações INT', 'Caixa']}
     if 'goals' not in st.session_state:
-        # CORREÇÃO: Valores das metas agora são floats para evitar erro de tipo.
         st.session_state.goals = {
             'Reserva de Emergência': {'meta': 10000.0, 'atual': 0.0},
             'Liberdade Financeira': {'meta': 1000000.0, 'atual': 0.0}
@@ -494,20 +493,39 @@ def ui_controle_financeiro():
                 data = st.date_input("Data", datetime.now())
                 tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
                 
+                # --- LÓGICA DE CATEGORIAS APRIMORADA ---
+                categoria_final = None
+                sub_arca = None
+
                 if tipo == "Investimento":
-                    categoria = st.selectbox("Categoria (Metodologia ARCA)", options=st.session_state.categories['Investimento'])
+                    # Campo ARCA aparece somente para Investimentos
+                    categoria_final = st.selectbox("Categoria (Metodologia ARCA)", options=st.session_state.categories['Investimento'], key="arca_cat")
+                    sub_arca = categoria_final
                 else:
-                    categoria = st.selectbox(f"Categoria de {tipo}", options=st.session_state.categories[tipo])
+                    # Lógica para criar categorias de Receita/Despesa
+                    opcoes_categoria = st.session_state.categories[tipo] + ["--- Adicionar Nova Categoria ---"]
+                    categoria_selecionada = st.selectbox(f"Categoria de {tipo}", options=opcoes_categoria, key=f"cat_{tipo}")
+                    
+                    if categoria_selecionada == "--- Adicionar Nova Categoria ---":
+                        nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
+                        if nova_categoria: # Usa a nova categoria se o usuário digitar algo
+                            categoria_final = nova_categoria
+                    else:
+                        categoria_final = categoria_selecionada
 
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 descricao = st.text_input("Descrição (opcional)")
                 submitted = st.form_submit_button("Adicionar Lançamento")
 
-                if submitted:
-                    sub_arca = categoria if tipo == "Investimento" else None
-                    nova_transacao = pd.DataFrame([{'Data': data, 'Tipo': tipo, 'Categoria': categoria, 'Subcategoria ARCA': sub_arca, 'Valor': valor, 'Descrição': descricao}])
-                    st.session_state.transactions = pd.concat([st.session_state.transactions, nova_transacao], ignore_index=True)
+                if submitted and categoria_final:
+                    # Adiciona a nova categoria à lista da sessão, se for nova
+                    if tipo != "Investimento" and categoria_final not in st.session_state.categories[tipo]:
+                        st.session_state.categories[tipo].append(categoria_final)
+
+                    nova_transacao = pd.DataFrame([{'Data': data, 'Tipo': tipo, 'Categoria': categoria_final, 'Subcategoria ARCA': sub_arca, 'Valor': valor, 'Descrição': descricao}])
+                    st.session_state.transactions = pd.concat([st.session_state.transactions, nova_transacao], ignore_index=True).reset_index(drop=True)
                     st.success("Lançamento adicionado!")
+                    st.rerun()
     
     with col2:
         with st.expander("🎯 Metas Financeiras", expanded=True):
@@ -519,7 +537,7 @@ def ui_controle_financeiro():
     
     st.divider()
 
-    df_trans = st.session_state.transactions
+    df_trans = st.session_state.transactions.copy()
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
     
@@ -574,16 +592,40 @@ def ui_controle_financeiro():
 
     with st.expander("📜 Histórico de Transações", expanded=True):
         if not df_trans.empty:
-            col1, col2, col3, col4 = st.columns(4)
-            with col1: tipo_filtro = st.selectbox("Filtrar por tipo", ["Todos"] + list(df_trans['Tipo'].unique()))
-            with col2: desc_filtro = st.text_input("Buscar na descrição...")
-            with col3: data_inicio = st.date_input("Data início", df_trans['Data'].min())
-            with col4: data_fim = st.date_input("Data fim", df_trans['Data'].max())
-            df_filtrado = df_trans.copy()
-            if tipo_filtro != "Todos": df_filtrado = df_filtrado[df_filtrado['Tipo'] == tipo_filtro]
-            if desc_filtro: df_filtrado = df_filtrado[df_filtrado['Descrição'].str.contains(desc_filtro, case=False, na=False)]
-            df_filtrado = df_filtrado[(df_filtrado['Data'].dt.date >= data_inicio) & (df_filtrado['Data'].dt.date <= data_fim)]
-            st.dataframe(df_filtrado.sort_values(by="Data", ascending=False), use_container_width=True)
+            # Adiciona a coluna 'Excluir' para o data_editor
+            df_para_editar = df_trans.copy()
+            df_para_editar['Excluir'] = False
+            
+            colunas_config = {
+                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+                "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
+            }
+
+            # Usa o st.data_editor para permitir edições
+            edited_df = st.data_editor(
+                df_para_editar[['Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição']], 
+                use_container_width=True,
+                column_config=colunas_config,
+                hide_index=True,
+                key="editor_transacoes"
+            )
+            
+            if st.button("Excluir Lançamentos Selecionados"):
+                # Lógica de exclusão
+                indices_para_excluir = edited_df[edited_df['Excluir']].index
+                st.session_state.transactions = st.session_state.transactions.drop(indices_para_excluir).reset_index(drop=True)
+                st.success("Lançamentos excluídos!")
+                st.rerun()
+
+            # Lógica de edição: st.data_editor já retorna o df editado.
+            # Precisamos comparar com o original para salvar as mudanças.
+            # O Streamlit trata isso reexecutando o script, então precisamos salvar o estado.
+            # A forma mais simples é atribuir o df editado (sem a coluna Excluir) de volta ao session_state.
+            # Removendo a coluna 'Excluir' antes de salvar
+            edited_df_sem_excluir = edited_df.drop(columns=['Excluir'])
+            st.session_state.transactions = edited_df_sem_excluir
+
         else:
             st.info("Nenhuma transação registrada.")
 
