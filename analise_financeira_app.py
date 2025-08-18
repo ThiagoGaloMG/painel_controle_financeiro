@@ -4,7 +4,7 @@ import pandas as pd
 import yfinance as yf
 import requests
 from zipfile import ZipFile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import warnings
 import numpy as np
@@ -12,7 +12,10 @@ import io
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import time
+import uuid
+from typing import Dict, List, Optional
 
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
@@ -20,114 +23,205 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA
 # ==============================================================================
-st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="📈")
+st.set_page_config(
+    layout="wide", 
+    page_title="Painel de Controle Financeiro Avançado", 
+    page_icon="📊",
+    initial_sidebar_state="collapsed"
+)
 
-# Estilo CSS para um tema escuro e profissional com efeito Neon
+# CSS aprimorado com melhor UX e responsividade
 st.markdown("""
 <style>
-    /* Paleta de Cores Neon Profissional */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Paleta de Cores Moderna */
     :root {
-        --primary-bg: #0A0A1A; /* Fundo carvão profundo, quase preto */
-        --secondary-bg: #1A1A2E; /* Fundo secundário azul/roxo escuro */
-        --widget-bg: #16213E; /* Fundo dos widgets */
-        --primary-accent: #00F6FF; /* Ciano neon vibrante */
-        --secondary-accent: #E94560; /* Vermelho/rosa neon para contraste */
-        --positive-accent: #00FF87; /* Verde neon */
-        --text-color: #E0E0E0; /* Cinza claro para texto, menos cansativo */
-        --header-color: #FFFFFF; /* Branco puro para títulos e labels importantes */
-        --border-color: #5372F0; /* Borda azul sutil */
+        --primary-bg: #0D1117;
+        --secondary-bg: #161B22;
+        --widget-bg: #21262D;
+        --primary-accent: #58A6FF;
+        --secondary-accent: #F85149;
+        --positive-accent: #3FB950;
+        --warning-accent: #D29922;
+        --text-color: #F0F6FC;
+        --text-secondary: #8B949E;
+        --border-color: #30363D;
+        --hover-bg: #262C36;
     }
 
-    body {
-        color: var(--text-color);
-        background-color: var(--primary-bg);
+    * {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+        max-width: 95%;
     }
     
-    /* Título com Gradiente Neon */
+    /* Título Principal com Animação */
     h1 {
-        background: -webkit-linear-gradient(45deg, var(--primary-accent), var(--positive-accent));
+        background: linear-gradient(135deg, var(--primary-accent), var(--positive-accent));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 10px rgba(0, 246, 255, 0.3);
+        text-align: center;
+        font-weight: 700;
+        font-size: 2.5rem;
+        margin-bottom: 2rem;
+        animation: glow 2s ease-in-out infinite alternate;
+    }
+    
+    @keyframes glow {
+        from { filter: drop-shadow(0 0 5px rgba(88, 166, 255, 0.3)); }
+        to { filter: drop-shadow(0 0 20px rgba(88, 166, 255, 0.6)); }
     }
     
     h2, h3 {
-        color: var(--header-color);
+        color: var(--text-color);
+        font-weight: 600;
     }
 
-    /* Abas com Efeito Neon */
+    /* Abas Modernas */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
+        gap: 8px;
+        background: var(--secondary-bg);
+        border-radius: 12px;
+        padding: 8px;
     }
     .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        background-color: transparent;
-        border-bottom: 2px solid var(--secondary-bg);
-        transition: all 0.3s;
+        height: 48px;
+        background: transparent;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+        color: var(--text-secondary);
+        font-weight: 500;
     }
     .stTabs [aria-selected="true"] {
-        color: var(--primary-accent);
-        border-bottom: 2px solid var(--primary-accent);
-        box-shadow: 0 2px 15px -5px var(--primary-accent);
+        background: var(--primary-accent);
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
     }
 
-    /* Métricas com Borda Neon Sutil e Texto Branco */
-    .stMetric {
-        border: 1px solid var(--secondary-bg);
-        border-radius: 8px;
-        padding: 20px;
-        background-color: var(--secondary-bg);
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    /* Cards de Métricas Aprimorados */
+    [data-testid="metric-container"] {
+        background: linear-gradient(135deg, var(--widget-bg) 0%, var(--secondary-bg) 100%);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
+        backdrop-filter: blur(10px);
     }
-    .stMetric label { /* Rótulo da métrica (ex: "Saldo") */
+    [data-testid="metric-container"]:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+        border-color: var(--primary-accent);
+    }
+    [data-testid="metric-container"] label {
+        color: var(--text-secondary);
+        font-weight: 500;
+        font-size: 0.9rem;
+    }
+    [data-testid="metric-container"] [data-testid="metric-value"] {
         color: var(--text-color);
-    }
-    .stMetric > div:nth-child(2) { /* O valor da métrica */
-        color: var(--header-color);
+        font-weight: 700;
+        font-size: 1.8rem;
     }
 
-    /* Botões com Efeito Neon */
+    /* Botões Interativos */
     .stButton > button {
-        border-radius: 8px;
-        border: 1px solid var(--primary-accent);
-        background-color: transparent;
-        color: var(--primary-accent);
-        transition: all 0.3s ease-in-out;
-        box-shadow: 0 0 5px var(--primary-accent);
+        background: linear-gradient(135deg, var(--primary-accent), #4A90E2);
+        border: none;
+        border-radius: 12px;
+        color: white;
+        font-weight: 600;
+        padding: 12px 24px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 16px rgba(88, 166, 255, 0.3);
     }
     .stButton > button:hover {
-        background-color: var(--primary-accent);
-        color: var(--primary-bg);
-        box-shadow: 0 0 20px var(--primary-accent);
-    }
-    .stButton > button:active {
-        transform: scale(0.98);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(88, 166, 255, 0.5);
+        background: linear-gradient(135deg, #4A90E2, var(--primary-accent));
     }
 
-    /* Expanders e Formulário com Texto Branco */
-    [data-testid="stExpander"] {
-        background-color: var(--secondary-bg);
+    /* Formulários e Inputs */
+    .stTextInput > div > div > input,
+    .stSelectbox > div > div > div,
+    .stNumberInput > div > div > input {
+        background: var(--widget-bg);
         border: 1px solid var(--border-color);
         border-radius: 8px;
+        color: var(--text-color);
+        transition: all 0.3s ease;
     }
-    [data-testid="stExpander"] summary, [data-testid="stForm"] label {
-        font-size: 1.1em;
-        font-weight: 600;
-        color: var(--header-color) !important;
+    .stTextInput > div > div > input:focus,
+    .stSelectbox > div > div > div:focus,
+    .stNumberInput > div > div > input:focus {
+        border-color: var(--primary-accent);
+        box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
     }
 
-    /* Barras de progresso */
-    [data-testid="stProgressBar"] > div {
-        background-image: linear-gradient(90deg, var(--primary-accent), var(--positive-accent));
+    /* Expanders Melhorados */
+    [data-testid="stExpander"] {
+        background: var(--widget-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+    [data-testid="stExpander"] summary {
+        font-weight: 600;
+        color: var(--text-color);
+        padding: 16px;
+    }
+
+    /* Tabelas Modernas */
+    .stDataFrame {
+        background: var(--widget-bg);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Barras de Progresso */
+    .stProgress > div > div > div {
+        background: linear-gradient(90deg, var(--primary-accent), var(--positive-accent));
+        border-radius: 10px;
+    }
+
+    /* Alertas e Notificações */
+    .stSuccess {
+        background: rgba(63, 185, 80, 0.1);
+        border-left: 4px solid var(--positive-accent);
+        border-radius: 8px;
+    }
+    .stError {
+        background: rgba(248, 81, 73, 0.1);
+        border-left: 4px solid var(--secondary-accent);
+        border-radius: 8px;
+    }
+    .stInfo {
+        background: rgba(88, 166, 255, 0.1);
+        border-left: 4px solid var(--primary-accent);
+        border-radius: 8px;
+    }
+
+    /* Sidebar Aprimorada */
+    .css-1d391kg {
+        background: var(--secondary-bg);
+    }
+
+    /* Responsividade */
+    @media (max-width: 768px) {
+        h1 { font-size: 2rem; }
+        [data-testid="metric-container"] { padding: 16px; }
+        .main .block-container { padding: 1rem; }
     }
 </style>""", unsafe_allow_html=True)
 
-
+# Configurações expandidas
 CONFIG = {
     "DIRETORIO_BASE": Path.home() / "Documentos" / "Analise_Financeira_Automatizada",
     "URL_BASE_CVM": 'https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS/',
@@ -154,13 +248,752 @@ CONFIG = {
 CONFIG["DIRETORIO_DADOS_CVM"] = CONFIG["DIRETORIO_BASE"] / "CVM_DATA"
 CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] = CONFIG["DIRETORIO_BASE"] / "CVM_EXTRACTED"
 
+# ==============================================================================
+# SISTEMA DE PERSISTÊNCIA APRIMORADO
+# ==============================================================================
+
+def inicializar_session_state():
+    """Inicializa o estado da sessão com estruturas de dados mais robustas."""
+    if 'transactions' not in st.session_state:
+        st.session_state.transactions = pd.DataFrame(columns=[
+            'id', 'Data', 'Tipo', 'Categoria', 'Subcategoria', 'Valor', 'Descrição', 'Tags', 'Recorrente'
+        ])
+    
+    if 'categories' not in st.session_state:
+        st.session_state.categories = {
+            'Receita': ['Salário', 'Freelance', 'Investimentos', 'Prêmios', 'Outros'],
+            'Despesa': ['Moradia', 'Alimentação', 'Transporte', 'Saúde', 'Educação', 'Lazer', 'Vestuário', 'Outros'],
+            'Investimento': ['Ações BR', 'FIIs', 'Ações INT', 'Caixa']  # ARCA fixo
+        }
+    
+    if 'goals' not in st.session_state:
+        st.session_state.goals = {
+            'Reserva de Emergência': {'meta': 10000.0, 'atual': 0.0, 'prazo': datetime.now() + timedelta(days=365)},
+            'Liberdade Financeira': {'meta': 1000000.0, 'atual': 0.0, 'prazo': datetime.now() + timedelta(days=3650)},
+            'Casa Própria': {'meta': 200000.0, 'atual': 0.0, 'prazo': datetime.now() + timedelta(days=1825)}
+        }
+    
+    if 'budgets' not in st.session_state:
+        st.session_state.budgets = {
+            'Alimentação': {'limite': 800.0, 'gasto': 0.0},
+            'Transporte': {'limite': 400.0, 'gasto': 0.0},
+            'Lazer': {'limite': 300.0, 'gasto': 0.0}
+        }
+    
+    if 'recurring_transactions' not in st.session_state:
+        st.session_state.recurring_transactions = pd.DataFrame(columns=[
+            'id', 'Tipo', 'Categoria', 'Valor', 'Descrição', 'Frequencia', 'Proximo_Vencimento', 'Ativo'
+        ])
+
+def gerar_id_unico():
+    """Gera um ID único para transações."""
+    return str(uuid.uuid4())[:8]
+
+def adicionar_transacao(data, tipo, categoria, subcategoria, valor, descricao, tags="", recorrente=False):
+    """Adiciona uma nova transação com validação."""
+    try:
+        nova_transacao = pd.DataFrame([{
+            'id': gerar_id_unico(),
+            'Data': pd.to_datetime(data),
+            'Tipo': tipo,
+            'Categoria': categoria,
+            'Subcategoria': subcategoria if subcategoria else None,
+            'Valor': float(valor),
+            'Descrição': descricao,
+            'Tags': tags,
+            'Recorrente': recorrente
+        }])
+        
+        st.session_state.transactions = pd.concat([
+            st.session_state.transactions, 
+            nova_transacao
+        ], ignore_index=True)
+        
+        # Atualizar orçamentos
+        if tipo == 'Despesa' and categoria in st.session_state.budgets:
+            st.session_state.budgets[categoria]['gasto'] += float(valor)
+        
+        return True, "Transação adicionada com sucesso!"
+    except Exception as e:
+        return False, f"Erro ao adicionar transação: {str(e)}"
+
+def calcular_metricas_financeiras():
+    """Calcula métricas financeiras abrangentes."""
+    df_trans = st.session_state.transactions.copy()
+    if df_trans.empty:
+        return {
+            'total_receitas': 0, 'total_despesas': 0, 'total_investido': 0,
+            'saldo_periodo': 0, 'taxa_poupanca': 0, 'patrimonio_liquido': 0
+        }
+    
+    df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+    
+    # Métricas básicas
+    total_receitas = df_trans[df_trans['Tipo'] == 'Receita']['Valor'].sum()
+    total_despesas = df_trans[df_trans['Tipo'] == 'Despesa']['Valor'].sum()
+    total_investido = df_trans[df_trans['Tipo'] == 'Investimento']['Valor'].sum()
+    
+    saldo_periodo = total_receitas - total_despesas - total_investido
+    taxa_poupanca = ((total_receitas - total_despesas) / total_receitas * 100) if total_receitas > 0 else 0
+    patrimonio_liquido = total_investido  # Simplificado
+    
+    # Métricas por categoria ARCA
+    invest_produtivos = df_trans[
+        (df_trans['Tipo'] == 'Investimento') & 
+        (df_trans['Subcategoria'].isin(['Ações BR', 'FIIs', 'Ações INT']))
+    ]['Valor'].sum()
+    
+    caixa = df_trans[
+        (df_trans['Tipo'] == 'Investimento') & 
+        (df_trans['Subcategoria'] == 'Caixa')
+    ]['Valor'].sum()
+    
+    return {
+        'total_receitas': total_receitas,
+        'total_despesas': total_despesas,
+        'total_investido': total_investido,
+        'saldo_periodo': saldo_periodo,
+        'taxa_poupanca': taxa_poupanca,
+        'patrimonio_liquido': patrimonio_liquido,
+        'invest_produtivos': invest_produtivos,
+        'caixa': caixa
+    }
 
 # ==============================================================================
-# LÓGICA DE DADOS GERAL (CVM, MERCADO, ETC.)
+# COMPONENTES DE UI APRIMORADOS
+# ==============================================================================
+
+def criar_card_metrica(titulo, valor, delta=None, formato_moeda=True, cor_delta="normal"):
+    """Cria um card de métrica customizado."""
+    if formato_moeda:
+        valor_formatado = f"R$ {valor:,.2f}" if valor >= 0 else f"-R$ {abs(valor):,.2f}"
+    else:
+        valor_formatado = f"{valor:.1f}%" if isinstance(valor, float) else str(valor)
+    
+    delta_str = f"{delta:+.2f}" if delta and formato_moeda else f"{delta:+.1f}%" if delta else None
+    
+    st.metric(
+        label=titulo,
+        value=valor_formatado,
+        delta=delta_str
+    )
+
+def exibir_dashboard_principal():
+    """Exibe o dashboard principal com métricas financeiras."""
+    st.subheader("📊 Dashboard Financeiro")
+    
+    metricas = calcular_metricas_financeiras()
+    
+    # Primeira linha de métricas
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        criar_card_metrica("💰 Receitas Totais", metricas['total_receitas'])
+    
+    with col2:
+        criar_card_metrica("💸 Despesas Totais", metricas['total_despesas'])
+    
+    with col3:
+        criar_card_metrica("📈 Investimentos", metricas['total_investido'])
+    
+    with col4:
+        saldo = metricas['saldo_periodo']
+        criar_card_metrica("💵 Saldo Líquido", saldo, delta=saldo)
+    
+    # Segunda linha de métricas
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        criar_card_metrica("💾 Taxa de Poupança", metricas['taxa_poupanca'], formato_moeda=False)
+    
+    with col2:
+        criar_card_metrica("🏦 Patrimônio Líquido", metricas['patrimonio_liquido'])
+    
+    with col3:
+        criar_card_metrica("🚀 Invest. Produtivos", metricas['invest_produtivos'])
+    
+    with col4:
+        criar_card_metrica("💰 Caixa", metricas['caixa'])
+
+def criar_formulario_transacao():
+    """Cria formulário aprimorado para nova transação."""
+    with st.form("new_transaction_form", clear_on_submit=True):
+        st.subheader("➕ Nova Transação")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            data = st.date_input("📅 Data", datetime.now())
+            tipo = st.selectbox("📋 Tipo", ["Receita", "Despesa", "Investimento"])
+            valor = st.number_input("💵 Valor (R$)", min_value=0.0, format="%.2f", step=10.0)
+        
+        with col2:
+            # Categoria dinâmica baseada no tipo
+            if tipo == "Investimento":
+                categoria = st.selectbox("📂 Categoria ARCA", st.session_state.categories['Investimento'])
+                subcategoria = categoria  # Para investimentos, subcategoria = categoria
+            else:
+                opcoes_categoria = st.session_state.categories[tipo] + ["➕ Nova Categoria"]
+                categoria_selecionada = st.selectbox("📂 Categoria", opcoes_categoria)
+                
+                if categoria_selecionada == "➕ Nova Categoria":
+                    categoria = st.text_input("✏️ Nome da Nova Categoria")
+                else:
+                    categoria = categoria_selecionada
+                
+                subcategoria = st.text_input("🏷️ Subcategoria (opcional)")
+            
+            descricao = st.text_input("📝 Descrição")
+            tags = st.text_input("🏷️ Tags (separadas por vírgula)")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            recorrente = st.checkbox("🔄 Transação Recorrente")
+        
+        with col2:
+            submitted = st.form_submit_button("✅ Adicionar Transação", type="primary", use_container_width=True)
+        
+        if submitted and categoria and valor > 0:
+            # Adicionar nova categoria se necessário
+            if tipo != "Investimento" and categoria not in st.session_state.categories[tipo]:
+                st.session_state.categories[tipo].append(categoria)
+            
+            sucesso, mensagem = adicionar_transacao(
+                data, tipo, categoria, subcategoria, valor, descricao, tags, recorrente
+            )
+            
+            if sucesso:
+                st.success(mensagem)
+                st.rerun()
+            else:
+                st.error(mensagem)
+
+def exibir_analise_arca():
+    """Exibe análise detalhada da metodologia ARCA."""
+    st.subheader("🎯 Análise ARCA (Asset Allocation)")
+    
+    metricas = calcular_metricas_financeiras()
+    total_investido = metricas['total_investido']
+    
+    if total_investido == 0:
+        st.info("Adicione investimentos para visualizar a análise ARCA.")
+        return
+    
+    df_trans = st.session_state.transactions[st.session_state.transactions['Tipo'] == 'Investimento']
+    df_arca = df_trans.groupby('Subcategoria')['Valor'].sum()
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Gráfico de Pizza Interativo
+        fig_arca = px.pie(
+            df_arca, 
+            values='Valor', 
+            names=df_arca.index,
+            title="🍰 Distribuição dos Investimentos por Classe ARCA",
+            hole=0.4,
+            template="plotly_dark",
+            color_discrete_sequence=['#58A6FF', '#3FB950', '#D29922', '#F85149']
+        )
+        
+        fig_arca.update_traces(
+            textposition='inside',
+            textinfo='percent+label',
+            hovertemplate="<b>%{label}</b><br>Valor: R$ %{value:,.2f}<br>Percentual: %{percent}<extra></extra>"
+        )
+        
+        fig_arca.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font_color='#F0F6FC',
+            title_font_size=16,
+            title_x=0.5
+        )
+        
+        st.plotly_chart(fig_arca, use_container_width=True)
+    
+    with col2:
+        st.markdown("### 📋 Composição ARCA")
+        
+        for categoria in ['Ações BR', 'FIIs', 'Ações INT', 'Caixa']:
+            valor = df_arca.get(categoria, 0)
+            percentual = (valor / total_investido * 100) if total_investido > 0 else 0
+            
+            # Cor baseada na categoria
+            cor_map = {
+                'Ações BR': '#58A6FF',
+                'FIIs': '#3FB950', 
+                'Ações INT': '#D29922',
+                'Caixa': '#F85149'
+            }
+            
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(90deg, {cor_map[categoria]}20, transparent);
+                border-left: 4px solid {cor_map[categoria]};
+                padding: 12px;
+                margin: 8px 0;
+                border-radius: 8px;
+            ">
+                <strong>{categoria}</strong><br>
+                R$ {valor:,.2f} ({percentual:.1f}%)
+            </div>
+            """, unsafe_allow_html=True)
+
+def exibir_metas_financeiras():
+    """Exibe e gerencia metas financeiras."""
+    st.subheader("🎯 Metas Financeiras")
+    
+    metricas = calcular_metricas_financeiras()
+    
+    # Atualizar valores atuais das metas
+    st.session_state.goals['Reserva de Emergência']['atual'] = metricas['caixa']
+    st.session_state.goals['Liberdade Financeira']['atual'] = metricas['invest_produtivos']
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        for nome_meta, dados in st.session_state.goals.items():
+            progresso = (dados['atual'] / dados['meta']) if dados['meta'] > 0 else 0
+            progresso_pct = min(progresso * 100, 100)
+            
+            # Card da meta com progresso
+            st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, var(--widget-bg), var(--secondary-bg));
+                border: 1px solid var(--border-color);
+                border-radius: 16px;
+                padding: 20px;
+                margin: 16px 0;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+            ">
+                <h4 style="color: var(--text-color); margin: 0 0 12px 0;">{nome_meta}</h4>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <span style="color: var(--text-secondary);">R$ {dados['atual']:,.2f}</span>
+                    <span style="color: var(--text-secondary);">R$ {dados['meta']:,.2f}</span>
+                </div>
+                <div style="
+                    background: var(--border-color);
+                    border-radius: 10px;
+                    overflow: hidden;
+                    height: 12px;
+                ">
+                    <div style="
+                        background: linear-gradient(90deg, var(--primary-accent), var(--positive-accent));
+                        height: 100%;
+                        width: {progresso_pct}%;
+                        transition: width 0.3s ease;
+                    "></div>
+                </div>
+                <div style="text-align: center; margin-top: 8px; color: var(--text-secondary); font-weight: 600;">
+                    {progresso_pct:.1f}% concluído
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
+        with st.expander("⚙️ Gerenciar Metas", expanded=True):
+            # Seletor de meta
+            meta_selecionada = st.selectbox("Selecionar Meta", list(st.session_state.goals.keys()))
+            
+            # Novos valores
+            novo_valor = st.number_input(
+                "Valor Alvo (R$)", 
+                min_value=0.0, 
+                value=st.session_state.goals[meta_selecionada]['meta'],
+                format="%.2f"
+            )
+            
+            nova_data = st.date_input(
+                "Prazo",
+                value=st.session_state.goals[meta_selecionada]['prazo']
+            )
+            
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("💾 Atualizar", use_container_width=True):
+                    st.session_state.goals[meta_selecionada]['meta'] = novo_valor
+                    st.session_state.goals[meta_selecionada]['prazo'] = nova_data
+                    st.success("Meta atualizada!")
+                    st.rerun()
+            
+            with col_btn2:
+                nova_meta = st.text_input("Nova Meta", placeholder="Nome da meta")
+                if st.button("➕ Adicionar", use_container_width=True) and nova_meta:
+                    st.session_state.goals[nova_meta] = {
+                        'meta': 1000.0, 
+                        'atual': 0.0, 
+                        'prazo': datetime.now() + timedelta(days=365)
+                    }
+                    st.success(f"Meta '{nova_meta}' criada!")
+                    st.rerun()
+
+def exibir_graficos_evolucao():
+    """Exibe gráficos de evolução financeira."""
+    st.subheader("📈 Evolução Patrimonial")
+    
+    df_trans = st.session_state.transactions.copy()
+    if df_trans.empty:
+        st.info("Adicione transações para visualizar a evolução.")
+        return
+    
+    df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+    
+    # Agrupamento mensal
+    df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
+    
+    # Calcular patrimônio acumulado
+    receitas_mensais = df_monthly.get('Receita', pd.Series(0, index=df_monthly.index))
+    despesas_mensais = df_monthly.get('Despesa', pd.Series(0, index=df_monthly.index))
+    investimentos_mensais = df_monthly.get('Investimento', pd.Series(0, index=df_monthly.index))
+    
+    df_monthly['Saldo_Mensal'] = receitas_mensais - despesas_mensais - investimentos_mensais
+    df_monthly['Patrimonio_Acumulado'] = investimentos_mensais.cumsum()
+    df_monthly['Caixa_Acumulado'] = (receitas_mensais - despesas_mensais).cumsum()
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Gráfico de barras - Fluxo mensal
+        fig_fluxo = go.Figure()
+        
+        if 'Receita' in df_monthly.columns:
+            fig_fluxo.add_trace(go.Bar(
+                x=df_monthly.index,
+                y=df_monthly['Receita'],
+                name='Receitas',
+                marker_color='#3FB950',
+                hovertemplate="<b>Receitas</b><br>%{x}<br>R$ %{y:,.2f}<extra></extra>"
+            ))
+        
+        if 'Despesa' in df_monthly.columns:
+            fig_fluxo.add_trace(go.Bar(
+                x=df_monthly.index,
+                y=-df_monthly['Despesa'],  # Negativo para visualização
+                name='Despesas',
+                marker_color='#F85149',
+                hovertemplate="<b>Despesas</b><br>%{x}<br>R$ %{y:,.2f}<extra></extra>"
+            ))
+        
+        if 'Investimento' in df_monthly.columns:
+            fig_fluxo.add_trace(go.Bar(
+                x=df_monthly.index,
+                y=df_monthly['Investimento'],
+                name='Investimentos',
+                marker_color='#58A6FF',
+                hovertemplate="<b>Investimentos</b><br>%{x}<br>R$ %{y:,.2f}<extra></extra>"
+            ))
+        
+        fig_fluxo.update_layout(
+            title="💰 Fluxo de Caixa Mensal",
+            xaxis_title="Período",
+            yaxis_title="Valor (R$)",
+            template="plotly_dark",
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font_color='#F0F6FC',
+            barmode='relative',
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_fluxo, use_container_width=True)
+    
+    with col2:
+        # Gráfico de linhas - Evolução patrimonial
+        fig_patrimonio = go.Figure()
+        
+        fig_patrimonio.add_trace(go.Scatter(
+            x=df_monthly.index,
+            y=df_monthly['Patrimonio_Acumulado'],
+            mode='lines+markers',
+            name='Patrimônio Investido',
+            line=dict(color='#58A6FF', width=3),
+            marker=dict(size=8),
+            hovertemplate="<b>Patrimônio</b><br>%{x}<br>R$ %{y:,.2f}<extra></extra>"
+        ))
+        
+        fig_patrimonio.add_trace(go.Scatter(
+            x=df_monthly.index,
+            y=df_monthly['Caixa_Acumulado'],
+            mode='lines+markers',
+            name='Caixa Líquido',
+            line=dict(color='#3FB950', width=3),
+            marker=dict(size=8),
+            hovertemplate="<b>Caixa</b><br>%{x}<br>R$ %{y:,.2f}<extra></extra>"
+        ))
+        
+        fig_patrimonio.update_layout(
+            title="📈 Evolução Patrimonial",
+            xaxis_title="Período",
+            yaxis_title="Valor Acumulado (R$)",
+            template="plotly_dark",
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font_color='#F0F6FC',
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_patrimonio, use_container_width=True)
+
+def exibir_orcamento_categorias():
+    """Exibe controle de orçamento por categorias."""
+    st.subheader("💰 Controle de Orçamento")
+    
+    # Calcular gastos por categoria no mês atual
+    df_trans = st.session_state.transactions.copy()
+    if not df_trans.empty:
+        df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+        mes_atual = datetime.now().replace(day=1)
+        df_mes = df_trans[
+            (df_trans['Data'] >= mes_atual) & 
+            (df_trans['Tipo'] == 'Despesa')
+        ]
+        gastos_mes = df_mes.groupby('Categoria')['Valor'].sum()
+    else:
+        gastos_mes = pd.Series()
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("### 📊 Status do Orçamento Mensal")
+        
+        for categoria, dados in st.session_state.budgets.items():
+            gasto_real = gastos_mes.get(categoria, 0)
+            limite = dados['limite']
+            percentual_usado = (gasto_real / limite * 100) if limite > 0 else 0
+            
+            # Cor baseada no percentual usado
+            if percentual_usado <= 50:
+                cor = '#3FB950'  # Verde
+            elif percentual_usado <= 80:
+                cor = '#D29922'  # Amarelo
+            else:
+                cor = '#F85149'  # Vermelho
+            
+            st.markdown(f"""
+            <div style="
+                background: var(--widget-bg);
+                border: 1px solid var(--border-color);
+                border-radius: 12px;
+                padding: 16px;
+                margin: 12px 0;
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <h4 style="color: var(--text-color); margin: 0;">{categoria}</h4>
+                    <span style="color: {cor}; font-weight: 600;">{percentual_usado:.1f}%</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="color: var(--text-secondary);">R$ {gasto_real:,.2f}</span>
+                    <span style="color: var(--text-secondary);">R$ {limite:,.2f}</span>
+                </div>
+                <div style="
+                    background: var(--border-color);
+                    border-radius: 6px;
+                    overflow: hidden;
+                    height: 8px;
+                ">
+                    <div style="
+                        background: {cor};
+                        height: 100%;
+                        width: {min(percentual_usado, 100)}%;
+                        transition: width 0.3s ease;
+                    "></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
+        with st.expander("⚙️ Configurar Orçamentos", expanded=True):
+            categoria_orcamento = st.selectbox(
+                "Categoria",
+                list(st.session_state.budgets.keys()) + ["➕ Nova Categoria"]
+            )
+            
+            if categoria_orcamento == "➕ Nova Categoria":
+                nova_categoria = st.text_input("Nome da Categoria")
+                limite_orcamento = st.number_input("Limite Mensal (R$)", min_value=0.0, value=500.0)
+                
+                if st.button("✅ Criar Orçamento", use_container_width=True) and nova_categoria:
+                    st.session_state.budgets[nova_categoria] = {
+                        'limite': limite_orcamento,
+                        'gasto': 0.0
+                    }
+                    st.success(f"Orçamento para '{nova_categoria}' criado!")
+                    st.rerun()
+            else:
+                limite_atual = st.session_state.budgets[categoria_orcamento]['limite']
+                novo_limite = st.number_input(
+                    "Novo Limite (R$)",
+                    min_value=0.0,
+                    value=limite_atual
+                )
+                
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 Atualizar", use_container_width=True):
+                        st.session_state.budgets[categoria_orcamento]['limite'] = novo_limite
+                        st.success("Orçamento atualizado!")
+                        st.rerun()
+                
+                with col_btn2:
+                    if st.button("🗑️ Excluir", use_container_width=True):
+                        del st.session_state.budgets[categoria_orcamento]
+                        st.success("Orçamento removido!")
+                        st.rerun()
+
+def exibir_historico_transacoes():
+    """Exibe histórico de transações com filtros avançados."""
+    st.subheader("📜 Histórico de Transações")
+    
+    df_trans = st.session_state.transactions.copy()
+    if df_trans.empty:
+        st.info("Nenhuma transação registrada ainda.")
+        return
+    
+    df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+    
+    # Filtros avançados
+    with st.expander("🔍 Filtros Avançados", expanded=False):
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            tipo_filtro = st.multiselect(
+                "Tipo", 
+                options=df_trans['Tipo'].unique(),
+                default=df_trans['Tipo'].unique()
+            )
+        
+        with col2:
+            categoria_filtro = st.multiselect(
+                "Categoria",
+                options=df_trans['Categoria'].unique(),
+                default=df_trans['Categoria'].unique()
+            )
+        
+        with col3:
+            data_inicio = st.date_input(
+                "Data Início",
+                value=df_trans['Data'].min().date()
+            )
+        
+        with col4:
+            data_fim = st.date_input(
+                "Data Fim",
+                value=df_trans['Data'].max().date()
+            )
+        
+        # Filtro de valor
+        col1, col2 = st.columns(2)
+        with col1:
+            valor_min = st.number_input("Valor Mínimo (R$)", min_value=0.0, value=0.0)
+        with col2:
+            valor_max = st.number_input("Valor Máximo (R$)", min_value=0.0, value=float(df_trans['Valor'].max()))
+        
+        # Busca por texto
+        busca_texto = st.text_input("🔎 Buscar na descrição ou tags...")
+    
+    # Aplicar filtros
+    df_filtrado = df_trans[
+        (df_trans['Tipo'].isin(tipo_filtro)) &
+        (df_trans['Categoria'].isin(categoria_filtro)) &
+        (df_trans['Data'].dt.date >= data_inicio) &
+        (df_trans['Data'].dt.date <= data_fim) &
+        (df_trans['Valor'] >= valor_min) &
+        (df_trans['Valor'] <= valor_max)
+    ]
+    
+    if busca_texto:
+        mask_busca = (
+            df_filtrado['Descrição'].str.contains(busca_texto, case=False, na=False) |
+            df_filtrado['Tags'].str.contains(busca_texto, case=False, na=False)
+        )
+        df_filtrado = df_filtrado[mask_busca]
+    
+    # Estatísticas do filtro
+    col1, col2, col3 = st.columns(3)
+    col1.metric("📊 Transações", len(df_filtrado))
+    col2.metric("💰 Total", f"R$ {df_filtrado['Valor'].sum():,.2f}")
+    col3.metric("📈 Média", f"R$ {df_filtrado['Valor'].mean():,.2f}" if not df_filtrado.empty else "R$ 0,00")
+    
+    # Tabela editável
+    if not df_filtrado.empty:
+        df_para_editar = df_filtrado.copy()
+        df_para_editar['Excluir'] = False
+        df_para_editar['Data'] = df_para_editar['Data'].dt.date
+        df_para_editar = df_para_editar.sort_values('Data', ascending=False)
+        
+        # Configuração das colunas
+        config_colunas = {
+            "Excluir": st.column_config.CheckboxColumn("❌"),
+            "Data": st.column_config.DateColumn("📅 Data", format="DD/MM/YYYY"),
+            "Tipo": st.column_config.SelectboxColumn("📋 Tipo", options=["Receita", "Despesa", "Investimento"]),
+            "Categoria": st.column_config.TextColumn("📂 Categoria"),
+            "Subcategoria": st.column_config.TextColumn("🏷️ Subcategoria"),
+            "Valor": st.column_config.NumberColumn("💵 Valor", format="R$ %.2f"),
+            "Descrição": st.column_config.TextColumn("📝 Descrição"),
+            "Tags": st.column_config.TextColumn("🏷️ Tags"),
+            "id": None  # Ocultar ID
+        }
+        
+        edited_df = st.data_editor(
+            df_para_editar,
+            column_config=config_colunas,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic"
+        )
+        
+        # Botões de ação
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🗑️ Excluir Selecionados", type="secondary", use_container_width=True):
+                indices_excluir = edited_df[edited_df['Excluir']].index
+                if not indices_excluir.empty:
+                    st.session_state.transactions = st.session_state.transactions.drop(indices_excluir).reset_index(drop=True)
+                    st.success(f"{len(indices_excluir)} transação(ões) excluída(s)!")
+                    st.rerun()
+                else:
+                    st.warning("Selecione transações para excluir.")
+        
+        with col2:
+            # Salvar alterações
+            if st.button("💾 Salvar Alterações", type="primary", use_container_width=True):
+                try:
+                    # Atualizar transações editadas (exceto as marcadas para exclusão)
+                    df_atualizado = edited_df[~edited_df['Excluir']].copy()
+                    df_atualizado = df_atualizado.drop(columns=['Excluir'])
+                    df_atualizado['Data'] = pd.to_datetime(df_atualizado['Data'])
+                    
+                    # Substituir no session state
+                    for idx, row in df_atualizado.iterrows():
+                        mask = st.session_state.transactions['id'] == row['id']
+                        for col in ['Data', 'Tipo', 'Categoria', 'Subcategoria', 'Valor', 'Descrição', 'Tags']:
+                            st.session_state.transactions.loc[mask, col] = row[col]
+                    
+                    st.success("Alterações salvas com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao salvar: {str(e)}")
+        
+        with col3:
+            # Exportar dados
+            csv_data = df_filtrado.to_csv(index=False, sep=';', decimal=',')
+            st.download_button(
+                label="📥 Exportar CSV",
+                data=csv_data,
+                file_name=f"transacoes_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+# ==============================================================================
+# LÓGICA DE DADOS CVM (MELHORADA)
 # ==============================================================================
 
 @st.cache_data
 def setup_diretorios():
+    """Configura diretórios necessários."""
     try:
         CONFIG["DIRETORIO_DADOS_CVM"].mkdir(parents=True, exist_ok=True)
         CONFIG["DIRETORIO_DADOS_EXTRAIDOS"].mkdir(parents=True, exist_ok=True)
@@ -170,41 +1003,73 @@ def setup_diretorios():
 
 @st.cache_data(show_spinner=False)
 def preparar_dados_cvm(anos_historico):
+    """Prepara dados da CVM com cache otimizado."""
     ano_final = datetime.today().year
     ano_inicial = ano_final - anos_historico
-    with st.spinner(f"Verificando e baixando dados da CVM de {ano_inicial} a {ano_final-1}..."):
+    
+    with st.spinner(f"🔄 Carregando dados CVM ({ano_inicial}-{ano_final-1})..."):
         demonstrativos_consolidados = {}
         tipos_demonstrativos = ['DRE', 'BPA', 'BPP', 'DFC_MI']
+        
+        progress_bar = st.progress(0)
+        total_operacoes = len(tipos_demonstrativos) * anos_historico
+        operacao_atual = 0
+        
         for tipo in tipos_demonstrativos:
             lista_dfs_anuais = []
+            
             for ano in range(ano_inicial, ano_final):
+                operacao_atual += 1
+                progress_bar.progress(operacao_atual / total_operacoes)
+                
                 nome_arquivo_csv = f'dfp_cia_aberta_{tipo}_con_{ano}.csv'
                 caminho_arquivo = CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] / nome_arquivo_csv
+                
                 if not caminho_arquivo.exists():
                     nome_zip = f'dfp_cia_aberta_{ano}.zip'
                     caminho_zip = CONFIG["DIRETORIO_DADOS_CVM"] / nome_zip
                     url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
+                    
                     try:
                         response = requests.get(url_zip, stream=True, timeout=60)
                         response.raise_for_status()
+                        
                         with open(caminho_zip, 'wb') as f:
-                            for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
+                            for chunk in response.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        
                         with ZipFile(caminho_zip, 'r') as z:
                             if nome_arquivo_csv in z.namelist():
                                 z.extract(nome_arquivo_csv, CONFIG["DIRETORIO_DADOS_EXTRAIDOS"])
-                            else: continue
-                    except Exception: continue
+                    except Exception as e:
+                        st.warning(f"Erro ao baixar {ano}: {str(e)}")
+                        continue
+                
                 if caminho_arquivo.exists():
                     try:
-                        df_anual = pd.read_csv(caminho_arquivo, sep=';', encoding='ISO-8859-1', low_memory=False)
+                        df_anual = pd.read_csv(
+                            caminho_arquivo, 
+                            sep=';', 
+                            encoding='ISO-8859-1', 
+                            low_memory=False
+                        )
                         lista_dfs_anuais.append(df_anual)
-                    except Exception: continue
+                    except Exception:
+                        continue
+            
             if lista_dfs_anuais:
-                demonstrativos_consolidados[tipo.lower()] = pd.concat(lista_dfs_anuais, ignore_index=True)
+                demonstrativos_consolidados[tipo.lower()] = pd.concat(
+                    lista_dfs_anuais, 
+                    ignore_index=True
+                )
+        
+        progress_bar.empty()
+    
     return demonstrativos_consolidados
 
 @st.cache_data
 def carregar_mapeamento_ticker_cvm():
+    """Carrega mapeamento expandido de tickers para códigos CVM."""
     mapeamento_csv_data = """CD_CVM;Ticker;Nome_Empresa
 25330;ALLD3;ALLIED TECNOLOGIA S.A.
 10456;ALPA4;ALPARGATAS S.A.
@@ -339,9 +1204,9 @@ def carregar_mapeamento_ticker_cvm():
 22181;HBRE3;HBR REALTY EMPREENDIMENTOS IMOBILIARIOS S.A.
 22181;HETA4;HERCULES S.A. - FABRICA DE TALHERES
 22181;HGTX3;CIA. HERING
-22181;HBOR3;HEL नाइथBOR EMPREENDIMENTOS S.A.
+22181;HBOR3;HELBOR EMPREENDIMENTOS S.A.
 22181;HYPE3;HYPERA S.A.
-21008;IFCM3;INFRICOMMERCE CXAAS S.A.
+21008;IFCM3;INFRACOMMERCE CXAAS S.A.
 24550;IGTI11;IGUA SANEAMENTO S.A.
 24550;IGTA3;IGUATEMI EMPRESA DE SHOPPING CENTERS S.A.
 22980;INEP3;INEPAR S/A INDUSTRIA E CONSTRUCOES
@@ -354,7 +1219,7 @@ def carregar_mapeamento_ticker_cvm():
 20249;ITUB3;ITAU UNIBANCO HOLDING S.A.
 22327;JALL3;JALLES MACHADO S.A.
 20307;JBSS3;JBS S.A.
-22645;JFEN3;JOAO FORTES ENGENHARia S.A.
+22645;JFEN3;JOAO FORTES ENGENHARIA S.A.
 2441;JHSF3;JHSF PARTICIPACOES S.A.
 25750;JOPA4;JOSAPAR JOAQUIM OLIVEIRA S.A. PARTICIPACOES
 25750;JSLG3;JSL S.A.
@@ -443,7 +1308,7 @@ def carregar_mapeamento_ticker_cvm():
 23280;SEQL3;SEQUOIA LOGISTICA E TRANSPORTES S.A.
 23280;SIMH3;SIMPAR S.A.
 23280;SLCE3;SLC AGRICOLA S.A.
-23280;SLED4;SARAIVA S.A. L IVREIROS EDITORES
+23280;SLED4;SARAIVA S.A. LIVREIROS EDITORES
 23280;SMFT3;SMARTFIT ESCOLA DE GINASTICA E DANCA S.A.
 23280;SMTO3;SAO MARTINHO S.A.
 23280;SOMA3;GRUPO DE MODA SOMA S.A.
@@ -513,6 +1378,7 @@ def carregar_mapeamento_ticker_cvm():
         return pd.DataFrame()
 
 def consulta_bc(codigo_bcb):
+    """Consulta API do Banco Central."""
     try:
         url = f'https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo_bcb}/dados/ultimos/1?formato=json'
         response = requests.get(url, timeout=10)
@@ -524,238 +1390,119 @@ def consulta_bc(codigo_bcb):
 
 @st.cache_data(show_spinner=False)
 def obter_dados_mercado(periodo_ibov):
-    with st.spinner("Buscando dados de mercado (Selic, Ibovespa)..."):
+    """Obtém dados de mercado otimizados."""
+    with st.spinner("📊 Buscando dados de mercado..."):
         selic_anual = consulta_bc(1178)
         risk_free_rate = selic_anual if selic_anual is not None else 0.105
+        
         ibov = yf.download('^BVSP', period=periodo_ibov, progress=False)
         if not ibov.empty and 'Adj Close' in ibov.columns:
             retorno_anual_mercado = ((1 + ibov['Adj Close'].pct_change().mean()) ** 252) - 1
         else:
             retorno_anual_mercado = 0.12
+        
         premio_risco_mercado = retorno_anual_mercado - risk_free_rate
+    
     return risk_free_rate, retorno_anual_mercado, premio_risco_mercado, ibov
 
 def obter_historico_metrica(df_empresa, codigo_conta):
+    """Obtém histórico de métrica específica."""
     metric_df = df_empresa[(df_empresa['CD_CONTA'] == codigo_conta) & (df_empresa['ORDEM_EXERC'] == 'ÚLTIMO')]
-    if metric_df.empty: return pd.Series(dtype=float)
+    if metric_df.empty:
+        return pd.Series(dtype=float)
+    
     metric_df['DT_REFER'] = pd.to_datetime(metric_df['DT_REFER'])
     metric_df = metric_df.sort_values('DT_REFER').groupby(metric_df['DT_REFER'].dt.year).last()
     return metric_df['VL_CONTA'].sort_index()
 
-
 # ==============================================================================
-# ABA 1: CONTROLE FINANCEIRO
+# ABA 1: CONTROLE FINANCEIRO APRIMORADO
 # ==============================================================================
-
-def inicializar_session_state():
-    """Inicializa o estado da sessão para simular um banco de dados."""
-    if 'transactions' not in st.session_state:
-        st.session_state.transactions = pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'])
-    if 'categories' not in st.session_state:
-        st.session_state.categories = {'Receita': ['Salário', 'Freelance'], 'Despesa': ['Moradia', 'Alimentação', 'Transporte'], 'Investimento': ['Ações BR', 'FIIs', 'Ações INT', 'Caixa']}
-    if 'goals' not in st.session_state:
-        st.session_state.goals = {
-            'Reserva de Emergência': {'meta': 10000.0, 'atual': 0.0},
-            'Liberdade Financeira': {'meta': 1000000.0, 'atual': 0.0}
-        }
 
 def ui_controle_financeiro():
-    """Renderiza a interface completa da aba de Controle Financeiro."""
-    st.header("Dashboard de Controle Financeiro Pessoal")
+    """Interface principal do controle financeiro aprimorado."""
+    st.header("💰 Sistema de Controle Financeiro Pessoal")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        with st.expander("➕ Novo Lançamento", expanded=True):
-            with st.form("new_transaction_form", clear_on_submit=True):
-                data = st.date_input("Data", datetime.now())
-                tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
+    # Dashboard principal
+    exibir_dashboard_principal()
+    
+    st.divider()
+    
+    # Layout em abas para melhor organização
+    tab_lancamento, tab_analises, tab_metas, tab_orcamento, tab_historico = st.tabs([
+        "➕ Novo Lançamento", 
+        "📊 Análises", 
+        "🎯 Metas", 
+        "💰 Orçamento", 
+        "📜 Histórico"
+    ])
+    
+    with tab_lancamento:
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            criar_formulario_transacao()
+        with col2:
+            # Resumo rápido
+            st.subheader("📋 Resumo Rápido")
+            metricas = calcular_metricas_financeiras()
+            
+            st.metric("💰 Saldo Atual", f"R$ {metricas['saldo_periodo']:,.2f}")
+            st.metric("📈 Taxa de Poupança", f"{metricas['taxa_poupanca']:.1f}%")
+            st.metric("🏦 Patrimônio", f"R$ {metricas['patrimonio_liquido']:,.2f}")
+            
+            # Transações recentes
+            df_trans = st.session_state.transactions.copy()
+            if not df_trans.empty:
+                st.subheader("🕐 Últimas Transações")
+                df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+                ultimas = df_trans.sort_values('Data', ascending=False).head(5)
                 
-                categoria_final = None
-                sub_arca = None
-                
-                # CORREÇÃO: Lógica do formulário para exibir o campo de categoria correto
-                category_placeholder = st.empty()
-
-                if tipo == "Investimento":
-                    with category_placeholder.container():
-                        categoria_selecionada = st.selectbox("Categoria (Metodologia ARCA)", 
-                                                             options=st.session_state.categories['Investimento'], 
-                                                             key="arca_cat")
-                    categoria_final = categoria_selecionada
-                    sub_arca = categoria_selecionada
-                else:
-                    with category_placeholder.container():
-                        label_categoria = "Categoria" # Label genérico
-                        opcoes_categoria = st.session_state.categories[tipo] + ["--- Adicionar Nova Categoria ---"]
-                        categoria_selecionada = st.selectbox(label_categoria, 
-                                                             options=opcoes_categoria, 
-                                                             key=f"cat_{tipo}")
-                        
-                        if categoria_selecionada == "--- Adicionar Nova Categoria ---":
-                            nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
-                            if nova_categoria:
-                                categoria_final = nova_categoria
-                        else:
-                            categoria_final = categoria_selecionada
-
-                valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-                descricao = st.text_input("Descrição (opcional)")
-                submitted = st.form_submit_button("Adicionar Lançamento")
-
-                if submitted and categoria_final:
-                    if tipo != "Investimento" and categoria_final not in st.session_state.categories[tipo]:
-                        st.session_state.categories[tipo].append(categoria_final)
-
-                    nova_transacao = pd.DataFrame([{'Data': data, 'Tipo': tipo, 'Categoria': categoria_final, 'Subcategoria ARCA': sub_arca, 'Valor': valor, 'Descrição': descricao}])
-                    st.session_state.transactions = pd.concat([st.session_state.transactions, nova_transacao], ignore_index=True).reset_index(drop=True)
-                    st.success("Lançamento adicionado!")
-                    st.rerun()
+                for _, trans in ultimas.iterrows():
+                    emoji = {"Receita": "💚", "Despesa": "💸", "Investimento": "📈"}
+                    st.markdown(f"""
+                    <div style="
+                        background: var(--widget-bg);
+                        border-radius: 8px;
+                        padding: 8px;
+                        margin: 4px 0;
+                        border-left: 3px solid var(--primary-accent);
+                    ">
+                        {emoji.get(trans['Tipo'], '💰')} <strong>{trans['Categoria']}</strong><br>
+                        <small>{trans['Data'].strftime('%d/%m/%Y')} - R$ {trans['Valor']:,.2f}</small>
+                    </div>
+                    """, unsafe_allow_html=True)
     
-    with col2:
-        with st.expander("🎯 Metas Financeiras", expanded=True):
-            meta_selecionada = st.selectbox("Selecione a meta para definir", options=list(st.session_state.goals.keys()))
-            novo_valor_meta = st.number_input("Definir Valor Alvo (R$)", min_value=0.0, value=st.session_state.goals[meta_selecionada]['meta'], format="%.2f")
-            if st.button("Atualizar Meta"):
-                st.session_state.goals[meta_selecionada]['meta'] = novo_valor_meta
-                st.success(f"Meta '{meta_selecionada}' atualizada!")
-    
-    st.divider()
-
-    df_trans = st.session_state.transactions.copy()
-    if not df_trans.empty:
-        df_trans['Data'] = pd.to_datetime(df_trans['Data'])
-    
-    total_receitas = df_trans[df_trans['Tipo'] == 'Receita']['Valor'].sum()
-    total_despesas = df_trans[df_trans['Tipo'] == 'Despesa']['Valor'].sum()
-    total_investido = df_trans[df_trans['Tipo'] == 'Investimento']['Valor'].sum()
-    # CORREÇÃO DO CÁLCULO DO SALDO
-    saldo_periodo = total_receitas - total_despesas - total_investido
-
-    st.subheader("Resumo Financeiro Total")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Receitas", f"R$ {total_receitas:,.2f}")
-    col2.metric("Despesas", f"R$ {total_despesas:,.2f}")
-    col3.metric("Investimentos", f"R$ {total_investido:,.2f}")
-    col4.metric("Saldo (Receitas - Despesas - Invest.)", f"R$ {saldo_periodo:,.2f}", delta=f"{saldo_periodo:,.2f}")
-    
-    st.divider()
-
-    invest_produtivos = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'].isin(['Ações BR', 'FIIs', 'Ações INT']))]['Valor'].sum()
-    caixa = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'] == 'Caixa')]['Valor'].sum()
-    
-    st.session_state.goals['Liberdade Financeira']['atual'] = invest_produtivos
-    st.session_state.goals['Reserva de Emergência']['atual'] = caixa
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.subheader("Distribuição ARCA")
-        df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
-        if not df_arca.empty:
-            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos", hole=.3, template="plotly_dark")
-            fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
-            fig_arca.update_traces(textinfo='percent+label')
-            st.plotly_chart(fig_arca, use_container_width=True)
-        else:
-            st.info("Nenhum investimento ARCA registrado.")
-
-    with col2:
-        st.subheader("Reserva de Emergência")
-        meta = st.session_state.goals['Reserva de Emergência']['meta']
-        atual = st.session_state.goals['Reserva de Emergência']['atual']
-        progresso = (atual / meta) if meta > 0 else 0
-        st.metric("Valor em Caixa", f"R$ {atual:,.2f}")
-        st.progress(min(progresso, 1.0), text=f"{progresso:.1%} da meta de R$ {meta:,.2f}")
-
-    with col3:
-        st.subheader("Liberdade Financeira")
-        meta = st.session_state.goals['Liberdade Financeira']['meta']
-        atual = st.session_state.goals['Liberdade Financeira']['atual']
-        progresso = (atual / meta) if meta > 0 else 0
-        st.metric("Investimentos Produtivos", f"R$ {atual:,.2f}")
-        st.progress(min(progresso, 1.0), text=f"{progresso:.1%} da meta de R$ {meta:,.2f}")
-        
-    st.divider()
-
-    st.subheader("Análise Histórica")
-    if not df_trans.empty:
-        df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
+    with tab_analises:
         col1, col2 = st.columns(2)
         with col1:
-            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark")
-            fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
-            st.plotly_chart(fig_evol_tipo, use_container_width=True)
+            exibir_analise_arca()
         with col2:
-            df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
-            fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
-            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
-            st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
-    else:
-        st.info("Adicione transações para visualizar os gráficos de evolução.")
-
-    with st.expander("📜 Histórico de Transações", expanded=True):
-        if not df_trans.empty:
-            # --- FILTROS DO HISTÓRICO ---
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                tipo_filtro = st.selectbox("Filtrar por tipo", ["Todos"] + list(df_trans['Tipo'].unique()), key="filter_type")
-            with col2:
-                desc_filtro = st.text_input("Buscar na descrição...", key="filter_desc")
-            with col3:
-                data_inicio = st.date_input("Data início", df_trans['Data'].min(), key="filter_start_date")
-            with col4:
-                data_fim = st.date_input("Data fim", df_trans['Data'].max(), key="filter_end_date")
-
-            df_filtrado = df_trans.copy()
-            if tipo_filtro != "Todos":
-                df_filtrado = df_filtrado[df_filtrado['Tipo'] == tipo_filtro]
-            if desc_filtro:
-                df_filtrado = df_filtrado[df_filtrado['Descrição'].str.contains(desc_filtro, case=False, na=False)]
-            
-            df_filtrado = df_filtrado[(df_filtrado['Data'].dt.date >= data_inicio) & (df_filtrado['Data'].dt.date <= data_fim)]
-            
-            # Tabela de edição
-            df_para_editar = df_filtrado.copy()
-            df_para_editar['Excluir'] = False
-            
-            colunas_config = {
-                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
-                "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
-            }
-
-            edited_df = st.data_editor(
-                df_para_editar[['Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição']], 
-                use_container_width=True,
-                column_config=colunas_config,
-                hide_index=True,
-                key="editor_transacoes"
-            )
-            
-            if st.button("Excluir Lançamentos Selecionados"):
-                indices_para_excluir = edited_df[edited_df['Excluir']].index
-                st.session_state.transactions = st.session_state.transactions.drop(indices_para_excluir).reset_index(drop=True)
-                st.success("Lançamentos excluídos!")
-                st.rerun()
-
-            edited_df_sem_excluir = edited_df.drop(columns=['Excluir'])
-            st.session_state.transactions = edited_df_sem_excluir
-
-        else:
-            st.info("Nenhuma transação registrada.")
-
+            exibir_graficos_evolucao()
+    
+    with tab_metas:
+        exibir_metas_financeiras()
+    
+    with tab_orcamento:
+        exibir_orcamento_categorias()
+    
+    with tab_historico:
+        exibir_historico_transacoes()
 
 # ==============================================================================
-# ABA 2: VALUATION
+# VALUATION E ANÁLISE DE AÇÕES (MANTIDO DO ORIGINAL)
 # ==============================================================================
 
 def calcular_beta(ticker, ibov_data, periodo_beta):
-    """Calcula o Beta de uma ação em relação ao Ibovespa de forma robusta."""
+    """Calcula o Beta de uma ação em relação ao Ibovespa."""
     dados_acao = yf.download(ticker, period=periodo_beta, progress=False, auto_adjust=True)['Close']
     if dados_acao.empty:
         return 1.0
 
-    # CORREÇÃO DEFINITIVA: Alinha os dataframes usando merge para garantir consistência
-    dados_combinados = pd.merge(dados_acao, ibov_data['Close'], left_index=True, right_index=True, suffixes=('_acao', '_ibov')).dropna()
+    dados_combinados = pd.merge(
+        dados_acao, ibov_data['Close'], 
+        left_index=True, right_index=True, 
+        suffixes=('_acao', '_ibov')
+    ).dropna()
     
     retornos_mensais = dados_combinados.resample('M').ffill().pct_change().dropna()
 
@@ -768,228 +1515,595 @@ def calcular_beta(ticker, ibov_data, periodo_beta):
     return covariancia / variancia_mercado if variancia_mercado != 0 else 1.0
 
 def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params):
+    """Processa valuation de uma empresa específica."""
+    # Busca dados de mercado com retry
+    for i in range(3):
+        try:
+            info = yf.Ticker(ticker_sa).info
+            market_cap = info.get('marketCap')
+            preco_atual = info.get('currentPrice', info.get('previousClose'))
+            nome_empresa = info.get('longName', ticker_sa)
+            n_acoes = info.get('sharesOutstanding')
+            
+            if all([market_cap, preco_atual, n_acoes, nome_empresa]):
+                break
+            
+            if i == 2:
+                return None, "Dados de mercado (YFinance) incompletos."
+            
+            time.sleep(2)
+        except Exception:
+            if i == 2:
+                return None, "Falha ao buscar dados no Yahoo Finance."
+            time.sleep(2)
+
     (risk_free_rate, _, premio_risco_mercado, ibov_data) = market_data
     dre, bpa, bpp, dfc = demonstrativos['dre'], demonstrativos['bpa'], demonstrativos['bpp'], demonstrativos['dfc_mi']
+    
+    # Filtrar dados por empresa
     empresa_dre = dre[dre['CD_CVM'] == codigo_cvm]
     empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm]
     empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm]
     empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm]
-    if any(df.empty for df in [empresa_dre, empresa_bpa, empresa_bpp, empresa_dfc]): return None, "Dados CVM históricos incompletos."
-    try:
-        info = yf.Ticker(ticker_sa).info
-        market_cap = info.get('marketCap'); preco_atual = info.get('currentPrice', info.get('previousClose'))
-        nome_empresa = info.get('longName', ticker_sa); n_acoes = info.get('sharesOutstanding')
-        if not all([market_cap, preco_atual, n_acoes, nome_empresa]): return None, "Dados de mercado (YFinance) incompletos."
-    except Exception: return None, "Falha ao buscar dados no Yahoo Finance."
+    
+    if any(df.empty for df in [empresa_dre, empresa_bpa, empresa_bpp, empresa_dfc]):
+        return None, "Dados CVM históricos incompletos."
+    
     C = CONFIG['CONTAS_CVM']
-    hist_ebit = obter_historico_metrica(empresa_dre, C['EBIT']); hist_impostos = obter_historico_metrica(empresa_dre, C['IMPOSTO_DE_RENDA_CSLL']); hist_lai = obter_historico_metrica(empresa_dre, C['LUCRO_ANTES_IMPOSTOS'])
-    if hist_lai.sum() == 0 or hist_ebit.empty: return None, "Dados de Lucro/EBIT insuficientes."
-    aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum()); hist_nopat = hist_ebit * (1 - aliquota_efetiva)
-    hist_dep_amort = obter_historico_metrica(empresa_dfc, C['DEPRECIACAO_AMORTIZACAO']); hist_fco = hist_nopat.add(hist_dep_amort, fill_value=0)
+    
+    # Calcular métricas históricas
+    hist_ebit = obter_historico_metrica(empresa_dre, C['EBIT'])
+    hist_impostos = obter_historico_metrica(empresa_dre, C['IMPOSTO_DE_RENDA_CSLL'])
+    hist_lai = obter_historico_metrica(empresa_dre, C['LUCRO_ANTES_IMPOSTOS'])
+    
+    if hist_lai.sum() == 0 or hist_ebit.empty:
+        return None, "Dados de Lucro/EBIT insuficientes."
+    
+    aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum())
+    hist_nopat = hist_ebit * (1 - aliquota_efetiva)
+    hist_dep_amort = obter_historico_metrica(empresa_dfc, C['DEPRECIACAO_AMORTIZACAO'])
+    hist_fco = hist_nopat.add(hist_dep_amort, fill_value=0)
+    
     try:
-        contas_a_receber = obter_historico_metrica(empresa_bpa, C['CONTAS_A_RECEBER']).iloc[-1]; estoques = obter_historico_metrica(empresa_bpa, C['ESTOQUES']).iloc[-1]
-        fornecedores = obter_historico_metrica(empresa_bpp, C['FORNECEDORES']).iloc[-1]; ativo_imobilizado = obter_historico_metrica(empresa_bpa, C['ATIVO_IMOBILIZADO']).iloc[-1]
-        ativo_intangivel = obter_historico_metrica(empresa_bpa, C['ATIVO_INTANGIVEL']).iloc[-1]; divida_cp = obter_historico_metrica(empresa_bpp, C['DIVIDA_CURTO_PRAZO']).iloc[-1]
-        divida_lp = obter_historico_metrica(empresa_bpp, C['DIVIDA_LONGO_PRAZO']).iloc[-1]; desp_financeira = abs(obter_historico_metrica(empresa_dre, C['DESPESAS_FINANCEIRAS']).iloc[-1])
-    except IndexError: return None, "Dados de balanço patrimonial ausentes ou incompletos."
-    ncg = contas_a_receber + estoques - fornecedores; capital_empregado = ncg + ativo_imobilizado + ativo_intangivel
-    if capital_empregado <= 0: return None, "Capital empregado negativo ou nulo."
-    nopat_medio = hist_nopat.tail(params['media_anos_calculo']).mean(); fco_medio = hist_fco.tail(params['media_anos_calculo']).mean()
-    if pd.isna(nopat_medio) or pd.isna(fco_medio): return None, "Não foi possível calcular NOPAT ou FCO médio."
-    roic = nopat_medio / capital_empregado; divida_total = divida_cp + divida_lp
-    kd = (desp_financeira / divida_total) if divida_total > 0 else 0.0; kd_liquido = kd * (1 - aliquota_efetiva)
-    beta = calcular_beta(ticker_sa, ibov_data, params['periodo_beta_ibov']); ke = risk_free_rate + beta * premio_risco_mercado
+        contas_a_receber = obter_historico_metrica(empresa_bpa, C['CONTAS_A_RECEBER']).iloc[-1]
+        estoques = obter_historico_metrica(empresa_bpa, C['ESTOQUES']).iloc[-1]
+        fornecedores = obter_historico_metrica(empresa_bpp, C['FORNECEDORES']).iloc[-1]
+        ativo_imobilizado = obter_historico_metrica(empresa_bpa, C['ATIVO_IMOBILIZADO']).iloc[-1]
+        ativo_intangivel = obter_historico_metrica(empresa_bpa, C['ATIVO_INTANGIVEL']).iloc[-1]
+        divida_cp = obter_historico_metrica(empresa_bpp, C['DIVIDA_CURTO_PRAZO']).iloc[-1]
+        divida_lp = obter_historico_metrica(empresa_bpp, C['DIVIDA_LONGO_PRAZO']).iloc[-1]
+        desp_financeira = abs(obter_historico_metrica(empresa_dre, C['DESPESAS_FINANCEIRAS']).iloc[-1])
+    except IndexError:
+        return None, "Dados de balanço patrimonial ausentes ou incompletos."
+    
+    ncg = contas_a_receber + estoques - fornecedores
+    capital_empregado = ncg + ativo_imobilizado + ativo_intangivel
+    
+    if capital_empregado <= 0:
+        return None, "Capital empregado negativo ou nulo."
+    
+    nopat_medio = hist_nopat.tail(params['media_anos_calculo']).mean()
+    fco_medio = hist_fco.tail(params['media_anos_calculo']).mean()
+    
+    if pd.isna(nopat_medio) or pd.isna(fco_medio):
+        return None, "Não foi possível calcular NOPAT ou FCO médio."
+    
+    roic = nopat_medio / capital_empregado
+    divida_total = divida_cp + divida_lp
+    kd = (desp_financeira / divida_total) if divida_total > 0 else 0.0
+    kd_liquido = kd * (1 - aliquota_efetiva)
+    
+    beta = calcular_beta(ticker_sa, ibov_data, params['periodo_beta_ibov'])
+    ke = risk_free_rate + beta * premio_risco_mercado
     ev_mercado = market_cap + divida_total
     wacc = ((market_cap / ev_mercado) * ke) + ((divida_total / ev_mercado) * kd_liquido) if ev_mercado > 0 else ke
-    eva = (roic - wacc) * capital_empregado; riqueza_atual = (eva / wacc) if wacc > 0 else 0.0
-    riqueza_futura_esperada = ev_mercado - capital_empregado; efv = riqueza_futura_esperada - riqueza_atual
+    
+    eva = (roic - wacc) * capital_empregado
+    riqueza_atual = (eva / wacc) if wacc > 0 else 0.0
+    riqueza_futura_esperada = ev_mercado - capital_empregado
+    efv = riqueza_futura_esperada - riqueza_atual
+    
     g = params['taxa_crescimento_perpetuidade']
-    if wacc <= g or pd.isna(wacc): return None, "WACC inválido ou menor/igual à taxa de crescimento."
-    valor_residual = (fco_medio * (1 + g)) / (wacc - g); equity_value = valor_residual - divida_total
-    preco_justo = equity_value / n_acoes if n_acoes > 0 else 0; margem_seguranca = (preco_justo / preco_atual) - 1 if preco_atual > 0 else 0
-    return {'Empresa': nome_empresa, 'Ticker': ticker_sa.replace('.SA', ''), 'Preço Atual (R$)': preco_atual, 'Preço Justo (R$)': preco_justo, 'Margem Segurança (%)': margem_seguranca * 100, 'Market Cap (R$)': market_cap, 'Capital Empregado (R$)': capital_empregado, 'Dívida Total (R$)': divida_total, 'NOPAT Médio (R$)': nopat_medio, 'ROIC (%)': roic * 100, 'Beta': beta, 'Custo do Capital (WACC %)': wacc * 100, 'Spread (ROIC-WACC %)': (roic - wacc) * 100, 'EVA (R$)': eva, 'EFV (R$)': efv, 'hist_nopat': hist_nopat, 'hist_fco': hist_fco, 'hist_roic': (hist_nopat / capital_empregado) * 100, 'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)}, "Análise concluída com sucesso."
+    if wacc <= g or pd.isna(wacc):
+        return None, "WACC inválido ou menor/igual à taxa de crescimento."
+    
+    valor_residual = (fco_medio * (1 + g)) / (wacc - g)
+    equity_value = valor_residual - divida_total
+    preco_justo = equity_value / n_acoes if n_acoes > 0 else 0
+    margem_seguranca = (preco_justo / preco_atual) - 1 if preco_atual > 0 else 0
+    
+    return {
+        'Empresa': nome_empresa,
+        'Ticker': ticker_sa.replace('.SA', ''),
+        'Preço Atual (R$)': preco_atual,
+        'Preço Justo (R$)': preco_justo,
+        'Margem Segurança (%)': margem_seguranca * 100,
+        'Market Cap (R$)': market_cap,
+        'Capital Empregado (R$)': capital_empregado,
+        'Dívida Total (R$)': divida_total,
+        'NOPAT Médio (R$)': nopat_medio,
+        'ROIC (%)': roic * 100,
+        'Beta': beta,
+        'Custo do Capital (WACC %)': wacc * 100,
+        'Spread (ROIC-WACC %)': (roic - wacc) * 100,
+        'EVA (R$)': eva,
+        'EFV (R$)': efv,
+        'hist_nopat': hist_nopat,
+        'hist_fco': hist_fco,
+        'hist_roic': (hist_nopat / capital_empregado) * 100,
+        'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)
+    }, "Análise concluída com sucesso."
 
 def executar_analise_completa(ticker_map, demonstrativos, market_data, params, progress_bar):
+    """Executa análise completa de valuation."""
     todos_os_resultados = []
     total_empresas = len(ticker_map)
+    
     for i, (index, row) in enumerate(ticker_map.iterrows()):
-        ticker = row['TICKER']; codigo_cvm = int(row['CD_CVM']); ticker_sa = f"{ticker}.SA"
+        ticker = row['TICKER']
+        codigo_cvm = int(row['CD_CVM'])
+        ticker_sa = f"{ticker}.SA"
+        
         progress = (i + 1) / total_empresas
         progress_bar.progress(progress, text=f"Analisando {i+1}/{total_empresas}: {ticker}")
+        
         try:
             resultados, _ = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params)
-            if resultados: todos_os_resultados.append(resultados)
-        except Exception: continue
+            if resultados:
+                todos_os_resultados.append(resultados)
+        except Exception:
+            continue
+    
     progress_bar.empty()
     return todos_os_resultados
 
 @st.cache_data
 def convert_df_to_csv(df):
-   return df.to_csv(index=False, decimal=',', sep=';', encoding='utf-8-sig').encode('utf-8-sig')
+    """Converte DataFrame para CSV."""
+    return df.to_csv(index=False, decimal=',', sep=';', encoding='utf-8-sig').encode('utf-8-sig')
 
 def exibir_rankings(df_final):
+    """Exibe rankings de mercado."""
     st.subheader("🏆 Rankings de Mercado")
     if df_final.empty:
         st.warning("Nenhuma empresa pôde ser analisada com sucesso para gerar os rankings.")
         return
-    rankings = {"MARGEM_SEGURANCA": ("Ranking por Margem de Segurança", 'Margem Segurança (%)', ['Ticker', 'Empresa', 'Preço Atual (R$)', 'Preço Justo (R$)', 'Margem Segurança (%)']), "ROIC": ("Ranking por ROIC", 'ROIC (%)', ['Ticker', 'Empresa', 'ROIC (%)', 'Spread (ROIC-WACC %)']), "EVA": ("Ranking por EVA", 'EVA (R$)', ['Ticker', 'Empresa', 'EVA (R$)']), "EFV": ("Ranking por EFV", 'EFV (R$)', ['Ticker', 'Empresa', 'EFV (R$)'])}
-    tab_names = [config[0] for config in rankings.values()]; tabs = st.tabs(tab_names)
+    
+    rankings = {
+        "MARGEM_SEGURANCA": (
+            "Ranking por Margem de Segurança", 
+            'Margem Segurança (%)', 
+            ['Ticker', 'Empresa', 'Preço Atual (R$)', 'Preço Justo (R$)', 'Margem Segurança (%)']
+        ),
+        "ROIC": (
+            "Ranking por ROIC", 
+            'ROIC (%)', 
+            ['Ticker', 'Empresa', 'ROIC (%)', 'Spread (ROIC-WACC %)']
+        ),
+        "EVA": (
+            "Ranking por EVA", 
+            'EVA (R$)', 
+            ['Ticker', 'Empresa', 'EVA (R$)']
+        ),
+        "EFV": (
+            "Ranking por EFV", 
+            'EFV (R$)', 
+            ['Ticker', 'Empresa', 'EFV (R$)']
+        )
+    }
+    
+    tab_names = [config[0] for config in rankings.values()]
+    tabs = st.tabs(tab_names)
+    
     for i, (nome_ranking, (titulo, coluna_sort, colunas_view)) in enumerate(rankings.items()):
         with tabs[i]:
             df_sorted = df_final.sort_values(by=coluna_sort, ascending=False).reset_index(drop=True)
             df_display = df_sorted[colunas_view].head(20).copy()
+            
             for col in df_display.columns:
-                if 'R$' in col: df_display[col] = df_display[col].apply(lambda x: f'R$ {x:,.2f}' if pd.notna(x) else 'N/A')
-                if '%' in col: df_display[col] = df_display[col].apply(lambda x: f'{x:.2f}%' if pd.notna(x) else 'N/A')
+                if 'R$' in col:
+                    df_display[col] = df_display[col].apply(lambda x: f'R$ {x:,.2f}' if pd.notna(x) else 'N/A')
+                if '%' in col:
+                    df_display[col] = df_display[col].apply(lambda x: f'{x:.2f}%' if pd.notna(x) else 'N/A')
+            
             st.dataframe(df_display, use_container_width=True, hide_index=True)
+            
             csv = convert_df_to_csv(df_sorted[colunas_view])
-            st.download_button(label=f"📥 Baixar Ranking Completo (.csv)", data=csv, file_name=f'ranking_{nome_ranking.lower()}.csv', mime='text/csv',)
+            st.download_button(
+                label=f"📥 Baixar Ranking Completo (.csv)",
+                data=csv,
+                file_name=f'ranking_{nome_ranking.lower()}.csv',
+                mime='text/csv',
+            )
 
 def ui_valuation():
-    st.header("Análise de Valuation e Scanner de Mercado")
-    tab_individual, tab_ranking = st.tabs(["Análise de Ativo Individual", "🔍 Scanner de Mercado (Ranking)"])
+    """Interface de valuation e análise de ações."""
+    st.header("📈 Análise de Valuation e Scanner de Mercado")
+    
+    tab_individual, tab_ranking = st.tabs([
+        "📊 Análise Individual", 
+        "🔍 Scanner de Mercado"
+    ])
+    
     ticker_cvm_map_df = carregar_mapeamento_ticker_cvm()
     if ticker_cvm_map_df.empty:
-        st.error("Não foi possível carregar o mapeamento de tickers."); st.stop()
+        st.error("Não foi possível carregar o mapeamento de tickers.")
+        st.stop()
     
     with tab_individual:
         with st.form(key='individual_analysis_form'):
             col1, col2 = st.columns([3, 1])
+            
             with col1:
                 lista_tickers = sorted(ticker_cvm_map_df['TICKER'].unique())
-                ticker_selecionado = st.selectbox("Selecione o Ticker da Empresa", options=lista_tickers, index=lista_tickers.index('PETR4'))
+                ticker_selecionado = st.selectbox(
+                    "Selecione o Ticker da Empresa", 
+                    options=lista_tickers, 
+                    index=lista_tickers.index('PETR4') if 'PETR4' in lista_tickers else 0
+                )
+            
             with col2:
-                analisar_btn = st.form_submit_button("Analisar Empresa", type="primary", use_container_width=True)
-        with st.expander("Opções Avançadas de Valuation", expanded=False):
-            p_taxa_cresc = st.slider("Taxa de Crescimento na Perpetuidade (%)", 0.0, 10.0, CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"] * 100, 0.5) / 100
-            p_media_anos = st.number_input("Anos para Média de NOPAT/FCO", 1, CONFIG["HISTORICO_ANOS_CVM"], CONFIG["MEDIA_ANOS_CALCULO"])
-            p_periodo_beta = st.selectbox("Período para Cálculo do Beta", options=["1y", "2y", "5y", "10y"], index=2, key="beta_individual")
+                analisar_btn = st.form_submit_button(
+                    "🔍 Analisar Empresa", 
+                    type="primary", 
+                    use_container_width=True
+                )
+        
+        with st.expander("⚙️ Opções Avançadas de Valuation", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                p_taxa_cresc = st.slider(
+                    "Taxa de Crescimento Perpetuidade (%)", 
+                    0.0, 10.0, 
+                    CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"] * 100, 
+                    0.5
+                ) / 100
+            
+            with col2:
+                p_media_anos = st.number_input(
+                    "Anos para Média NOPAT/FCO", 
+                    1, CONFIG["HISTORICO_ANOS_CVM"], 
+                    CONFIG["MEDIA_ANOS_CALCULO"]
+                )
+            
+            with col3:
+                p_periodo_beta = st.selectbox(
+                    "Período para Cálculo do Beta", 
+                    options=["1y", "2y", "5y", "10y"], 
+                    index=2
+                )
+        
         if analisar_btn:
-            demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"]); market_data = obter_dados_mercado(p_periodo_beta)
-            ticker_sa = f"{ticker_selecionado}.SA"; codigo_cvm_info = ticker_cvm_map_df[ticker_cvm_map_df['TICKER'] == ticker_selecionado]
+            demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
+            market_data = obter_dados_mercado(p_periodo_beta)
+            
+            ticker_sa = f"{ticker_selecionado}.SA"
+            codigo_cvm_info = ticker_cvm_map_df[ticker_cvm_map_df['TICKER'] == ticker_selecionado]
             codigo_cvm = int(codigo_cvm_info.iloc[0]['CD_CVM'])
-            params_analise = {'taxa_crescimento_perpetuidade': p_taxa_cresc, 'media_anos_calculo': p_media_anos, 'periodo_beta_ibov': p_periodo_beta}
-            with st.spinner(f"Analisando {ticker_selecionado}..."):
-                resultados, status_msg = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params_analise)
+            
+            params_analise = {
+                'taxa_crescimento_perpetuidade': p_taxa_cresc,
+                'media_anos_calculo': p_media_anos,
+                'periodo_beta_ibov': p_periodo_beta
+            }
+            
+            with st.spinner(f"🔄 Analisando {ticker_selecionado}..."):
+                resultados, status_msg = processar_valuation_empresa(
+                    ticker_sa, codigo_cvm, demonstrativos, market_data, params_analise
+                )
+            
             if resultados:
-                st.success(f"Análise para **{resultados['Empresa']} ({resultados['Ticker']})** concluída!")
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Preço Atual", f"R$ {resultados['Preço Atual (R$)']:.2f}"); col2.metric("Preço Justo (DCF)", f"R$ {resultados['Preço Justo (R$)']:.2f}")
-                ms_delta = resultados['Margem Segurança (%)']; col3.metric("Margem de Segurança", f"{ms_delta:.2f}%", delta=f"{ms_delta:.2f}%" if not pd.isna(ms_delta) else None)
+                st.success(f"✅ Análise para **{resultados['Empresa']} ({resultados['Ticker']})** concluída!")
+                
+                # Métricas principais
+                col1, col2, col3, col4 = st.columns(4)
+                
+                col1.metric(
+                    "💰 Preço Atual", 
+                    f"R$ {resultados['Preço Atual (R$)']:.2f}"
+                )
+                
+                col2.metric(
+                    "🎯 Preço Justo (DCF)", 
+                    f"R$ {resultados['Preço Justo (R$)']:.2f}"
+                )
+                
+                ms_delta = resultados['Margem Segurança (%)']
+                col3.metric(
+                    "🛡️ Margem de Segurança", 
+                    f"{ms_delta:.2f}%", 
+                    delta=f"{ms_delta:.2f}%" if not pd.isna(ms_delta) else None
+                )
+                
+                col4.metric(
+                    "📊 ROIC", 
+                    f"{resultados['ROIC (%)']:.2f}%"
+                )
+                
                 st.divider()
-                tab_g, tab_d = st.tabs(["📊 Gráficos", "🔢 Tabela de Dados"])
+                
+                # Gráficos e dados detalhados
+                tab_g, tab_d = st.tabs(["📊 Gráficos", "🔢 Dados Detalhados"])
+                
                 with tab_g:
-                    st.plotly_chart(px.bar(x=resultados['hist_nopat'].index, y=resultados['hist_nopat'].values, title='Histórico de NOPAT', template="plotly_dark").update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'), use_container_width=True)
-                    st.plotly_chart(px.bar(x=resultados['hist_fco'].index, y=resultados['hist_fco'].values, title='Histórico de FCO', template="plotly_dark").update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'), use_container_width=True)
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Gráfico NOPAT
+                        fig_nopat = px.bar(
+                            x=resultados['hist_nopat'].index,
+                            y=resultados['hist_nopat'].values,
+                            title='📈 Histórico de NOPAT',
+                            template="plotly_dark"
+                        )
+                        fig_nopat.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            font_color='#F0F6FC'
+                        )
+                        st.plotly_chart(fig_nopat, use_container_width=True)
+                    
+                    with col2:
+                        # Gráfico FCO
+                        fig_fco = px.bar(
+                            x=resultados['hist_fco'].index,
+                            y=resultados['hist_fco'].values,
+                            title='💰 Histórico de FCO',
+                            template="plotly_dark"
+                        )
+                        fig_fco.update_layout(
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            font_color='#F0F6FC'
+                        )
+                        st.plotly_chart(fig_fco, use_container_width=True)
+                
                 with tab_d:
-                    df_display = pd.DataFrame.from_dict(resultados, orient='index', columns=['Valor'])
-                    st.dataframe(df_display.drop(['hist_nopat', 'hist_fco', 'hist_roic', 'wacc_series']), use_container_width=True)
-            else: st.error(f"Não foi possível analisar {ticker_selecionado}. Motivo: {status_msg}")
+                    # Tabela de dados
+                    df_display = pd.DataFrame.from_dict(
+                        {k: v for k, v in resultados.items() 
+                         if k not in ['hist_nopat', 'hist_fco', 'hist_roic', 'wacc_series']},
+                        orient='index',
+                        columns=['Valor']
+                    )
+                    st.dataframe(df_display, use_container_width=True)
+            else:
+                st.error(f"❌ Não foi possível analisar {ticker_selecionado}. Motivo: {status_msg}")
 
     with tab_ranking:
-        st.info("Esta análise processa todas as empresas da lista, o que pode levar vários minutos.")
+        st.info("🔄 Esta análise processa todas as empresas da lista, o que pode levar vários minutos.")
+        
         if st.button("🚀 Iniciar Análise Completa e Gerar Rankings", type="primary", use_container_width=True):
-            params_ranking = {'taxa_crescimento_perpetuidade': CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"], 'media_anos_calculo': CONFIG["MEDIA_ANOS_CALCULO"], 'periodo_beta_ibov': CONFIG["PERIODO_BETA_IBOV"]}
-            demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"]); market_data = obter_dados_mercado(params_ranking['periodo_beta_ibov'])
-            progress_bar = st.progress(0, text="Iniciando análise em lote...")
-            resultados_completos = executar_analise_completa(ticker_cvm_map_df, demonstrativos, market_data, params_ranking, progress_bar)
+            params_ranking = {
+                'taxa_crescimento_perpetuidade': CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"],
+                'media_anos_calculo': CONFIG["MEDIA_ANOS_CALCULO"],
+                'periodo_beta_ibov': CONFIG["PERIODO_BETA_IBOV"]
+            }
+            
+            demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
+            market_data = obter_dados_mercado(params_ranking['periodo_beta_ibov'])
+            
+            progress_bar = st.progress(0, text="🔄 Iniciando análise em lote...")
+            
+            resultados_completos = executar_analise_completa(
+                ticker_cvm_map_df, demonstrativos, market_data, params_ranking, progress_bar
+            )
+            
             if resultados_completos:
                 df_final = pd.DataFrame(resultados_completos)
-                st.success(f"Análise completa! {len(df_final)} de {len(ticker_cvm_map_df)} empresas foram processadas com sucesso.")
+                st.success(f"✅ Análise completa! {len(df_final)} de {len(ticker_cvm_map_df)} empresas foram processadas com sucesso.")
                 exibir_rankings(df_final)
-            else: st.error("A análise em lote não retornou nenhum resultado válido.")
+            else:
+                st.error("❌ A análise em lote não retornou nenhum resultado válido.")
 
 # ==============================================================================
-# ABA 3: MODELO FLEURIET
+# MODELO FLEURIET (MANTIDO DO ORIGINAL COM MELHORIAS VISUAIS)
 # ==============================================================================
 
 def reclassificar_contas_fleuriet(df_bpa, df_bpp, contas_cvm):
-    aco = obter_historico_metrica(df_bpa, contas_cvm['ESTOQUES']).add(obter_historico_metrica(df_bpa, contas_cvm['CONTAS_A_RECEBER']), fill_value=0)
+    """Reclassifica contas para o modelo Fleuriet."""
+    aco = obter_historico_metrica(df_bpa, contas_cvm['ESTOQUES']).add(
+        obter_historico_metrica(df_bpa, contas_cvm['CONTAS_A_RECEBER']), 
+        fill_value=0
+    )
     pco = obter_historico_metrica(df_bpp, contas_cvm['FORNECEDORES'])
     ap = obter_historico_metrica(df_bpa, contas_cvm['ATIVO_NAO_CIRCULANTE'])
     pl = obter_historico_metrica(df_bpp, contas_cvm['PATRIMONIO_LIQUIDO'])
     pnc = obter_historico_metrica(df_bpp, contas_cvm['PASSIVO_NAO_CIRCULANTE'])
+    
     return aco, pco, ap, pl, pnc
 
 def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
+    """Processa análise Fleuriet para uma empresa."""
     C = CONFIG['CONTAS_CVM']
+    
     bpa = demonstrativos['bpa'][demonstrativos['bpa']['CD_CVM'] == codigo_cvm]
     bpp = demonstrativos['bpp'][demonstrativos['bpp']['CD_CVM'] == codigo_cvm]
     dre = demonstrativos['dre'][demonstrativos['dre']['CD_CVM'] == codigo_cvm]
-    if any(df.empty for df in [bpa, bpp, dre]): return None
+    
+    if any(df.empty for df in [bpa, bpp, dre]):
+        return None
     
     aco, pco, ap, pl, pnc = reclassificar_contas_fleuriet(bpa, bpp, C)
-    if any(s.empty for s in [aco, pco, ap, pl, pnc]): return None
-
-    ncg = aco.subtract(pco, fill_value=0); cdg = pl.add(pnc, fill_value=0).subtract(ap, fill_value=0); t = cdg.subtract(ncg, fill_value=0)
     
+    if any(s.empty for s in [aco, pco, ap, pl, pnc]):
+        return None
+
+    ncg = aco.subtract(pco, fill_value=0)
+    cdg = pl.add(pnc, fill_value=0).subtract(ap, fill_value=0)
+    t = cdg.subtract(ncg, fill_value=0)
+    
+    # Análise do efeito tesoura
     efeito_tesoura = False
     if len(ncg) > 1 and len(cdg) > 1:
-        cresc_ncg = ncg.pct_change().iloc[-1]; cresc_cdg = cdg.pct_change().iloc[-1]
+        cresc_ncg = ncg.pct_change().iloc[-1]
+        cresc_cdg = cdg.pct_change().iloc[-1]
         if pd.notna(cresc_ncg) and pd.notna(cresc_cdg) and cresc_ncg > cresc_cdg and t.iloc[-1] < 0:
             efeito_tesoura = True
             
     try:
-        info = yf.Ticker(ticker_sa).info; market_cap = info.get('marketCap', 0)
-        ativo_total = obter_historico_metrica(bpa, C['ATIVO_TOTAL']).iloc[-1]; passivo_total = obter_historico_metrica(bpp, C['PASSIVO_TOTAL']).iloc[-1]
-        lucro_retido = pl.iloc[-1] - pl.iloc[0]; ebit = obter_historico_metrica(dre, C['EBIT']).iloc[-1]; vendas = obter_historico_metrica(dre, C['RECEITA_LIQUIDA']).iloc[-1]
-        X1 = cdg.iloc[-1] / ativo_total; X2 = lucro_retido / ativo_total; X3 = ebit / ativo_total
-        X4 = market_cap / passivo_total if passivo_total > 0 else 0; X5 = vendas / ativo_total
+        info = yf.Ticker(ticker_sa).info
+        market_cap = info.get('marketCap', 0)
+        
+        ativo_total = obter_historico_metrica(bpa, C['ATIVO_TOTAL']).iloc[-1]
+        passivo_total = obter_historico_metrica(bpp, C['PASSIVO_TOTAL']).iloc[-1]
+        lucro_retido = pl.iloc[-1] - pl.iloc[0]
+        ebit = obter_historico_metrica(dre, C['EBIT']).iloc[-1]
+        vendas = obter_historico_metrica(dre, C['RECEITA_LIQUIDA']).iloc[-1]
+        
+        # Z-Score de Prado
+        X1 = cdg.iloc[-1] / ativo_total
+        X2 = lucro_retido / ativo_total
+        X3 = ebit / ativo_total
+        X4 = market_cap / passivo_total if passivo_total > 0 else 0
+        X5 = vendas / ativo_total
+        
         z_score = 0.038*X1 + 1.253*X2 + 2.331*X3 + 0.511*X4 + 0.824*X5
-        if z_score < 1.81: classificacao = "Risco Elevado"
-        elif z_score < 2.99: classificacao = "Zona Cinzenta"
-        else: classificacao = "Saudável"
-    except Exception: z_score, classificacao = None, "Erro no cálculo"
+        
+        if z_score < 1.81:
+            classificacao = "Risco Elevado"
+        elif z_score < 2.99:
+            classificacao = "Zona Cinzenta"
+        else:
+            classificacao = "Saudável"
+            
+    except Exception:
+        z_score, classificacao = None, "Erro no cálculo"
 
-    return {'Ticker': ticker_sa.replace('.SA', ''), 'Empresa': info.get('longName', ticker_sa), 'Ano': t.index[-1], 'NCG': ncg.iloc[-1], 'CDG': cdg.iloc[-1], 'Tesouraria': t.iloc[-1], 'Efeito Tesoura': efeito_tesoura, 'Z-Score': z_score, 'Classificação Risco': classificacao}
+    return {
+        'Ticker': ticker_sa.replace('.SA', ''),
+        'Empresa': info.get('longName', ticker_sa) if 'info' in locals() else ticker_sa,
+        'Ano': t.index[-1],
+        'NCG': ncg.iloc[-1],
+        'CDG': cdg.iloc[-1],
+        'Tesouraria': t.iloc[-1],
+        'Efeito Tesoura': efeito_tesoura,
+        'Z-Score': z_score,
+        'Classificação Risco': classificacao
+    }
 
 def ui_modelo_fleuriet():
-    st.header("Análise de Saúde Financeira (Modelo Fleuriet & Z-Score)")
-    st.info("Esta análise utiliza os dados da CVM para avaliar a estrutura de capital de giro e o risco de insolvência das empresas.")
+    """Interface do modelo Fleuriet."""
+    st.header("🔬 Análise de Saúde Financeira (Modelo Fleuriet & Z-Score)")
+    
+    st.info("📊 Esta análise utiliza os dados da CVM para avaliar a estrutura de capital de giro e o risco de insolvência das empresas.")
+    
     if st.button("🚀 Iniciar Análise Fleuriet Completa", type="primary", use_container_width=True):
         ticker_cvm_map_df = carregar_mapeamento_ticker_cvm()
         demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
+        
         resultados_fleuriet = []
-        progress_bar = st.progress(0, text="Iniciando análise Fleuriet...")
+        progress_bar = st.progress(0, text="🔄 Iniciando análise Fleuriet...")
+        
         total_empresas = len(ticker_cvm_map_df)
+        
         for i, (index, row) in enumerate(ticker_cvm_map_df.iterrows()):
             ticker = row['TICKER']
-            progress_bar.progress((i + 1) / total_empresas, text=f"Analisando {i+1}/{total_empresas}: {ticker}")
-            resultado = processar_analise_fleuriet(f"{ticker}.SA", int(row['CD_CVM']), demonstrativos)
-            if resultado: resultados_fleuriet.append(resultado)
+            progress_bar.progress(
+                (i + 1) / total_empresas, 
+                text=f"Analisando {i+1}/{total_empresas}: {ticker}"
+            )
+            
+            resultado = processar_analise_fleuriet(
+                f"{ticker}.SA", 
+                int(row['CD_CVM']), 
+                demonstrativos
+            )
+            
+            if resultado:
+                resultados_fleuriet.append(resultado)
+        
         progress_bar.empty()
         
         if resultados_fleuriet:
             df_fleuriet = pd.DataFrame(resultados_fleuriet)
-            st.success(f"Análise Fleuriet concluída para {len(df_fleuriet)} empresas.")
-            ncg_medio = df_fleuriet['NCG'].mean(); tesoura_count = df_fleuriet['Efeito Tesoura'].sum()
-            risco_count = len(df_fleuriet[df_fleuriet['Classificação Risco'] == "Risco Elevado"]); zscore_medio = df_fleuriet['Z-Score'].mean()
+            st.success(f"✅ Análise Fleuriet concluída para {len(df_fleuriet)} empresas.")
+            
+            # Métricas resumo
+            ncg_medio = df_fleuriet['NCG'].mean()
+            tesoura_count = df_fleuriet['Efeito Tesoura'].sum()
+            risco_count = len(df_fleuriet[df_fleuriet['Classificação Risco'] == "Risco Elevado"])
+            zscore_medio = df_fleuriet['Z-Score'].mean()
+            
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("NCG Média", f"R$ {ncg_medio/1e6:.1f} M"); col2.metric("Efeito Tesoura", f"{tesoura_count} empresas")
-            col3.metric("Alto Risco (Z-Score)", f"{risco_count} empresas"); col4.metric("Z-Score Médio", f"{zscore_medio:.2f}")
+            
+            col1.metric("📊 NCG Média", f"R$ {ncg_medio/1e6:.1f} M")
+            col2.metric("⚠️ Efeito Tesoura", f"{tesoura_count} empresas")
+            col3.metric("🚨 Alto Risco", f"{risco_count} empresas")
+            col4.metric("📈 Z-Score Médio", f"{zscore_medio:.2f}")
+            
+            # Tabela de resultados
             st.dataframe(df_fleuriet, use_container_width=True)
-        else: st.error("Nenhum resultado pôde ser gerado para a análise Fleuriet.")
-    with st.expander("📖 Metodologia do Modelo Fleuriet"):
-        st.markdown("""- **NCG (Necessidade de Capital de Giro):** `(Estoques + Contas a Receber) - Fornecedores`
-- **CDG (Capital de Giro):** `(Patrimônio Líquido + Passivo Longo Prazo) - Ativo Permanente`
-- **T (Saldo de Tesouraria):** `CDG - NCG`
-- **Efeito Tesoura:** Ocorre quando a NCG cresce mais rapidamente que o CDG.
-- **Z-Score de Prado:** Modelo estatístico que mede a probabilidade de uma empresa ir à falência.""")
+            
+            # Download dos resultados
+            csv_fleuriet = convert_df_to_csv(df_fleuriet)
+            st.download_button(
+                label="📥 Baixar Análise Fleuriet (.csv)",
+                data=csv_fleuriet,
+                file_name=f'analise_fleuriet_{datetime.now().strftime("%Y%m%d")}.csv',
+                mime='text/csv'
+            )
+        else:
+            st.error("❌ Nenhum resultado pôde ser gerado para a análise Fleuriet.")
+    
+    with st.expander("📖 Metodologia do Modelo Fleuriet", expanded=False):
+        st.markdown("""
+        ### 🔍 Indicadores do Modelo Fleuriet
+        
+        - **NCG (Necessidade de Capital de Giro):** `(Estoques + Contas a Receber) - Fornecedores`
+        - **CDG (Capital de Giro):** `(Patrimônio Líquido + Passivo Longo Prazo) - Ativo Permanente`
+        - **T (Saldo de Tesouraria):** `CDG - NCG`
+        - **Efeito Tesoura:** Ocorre quando a NCG cresce mais rapidamente que o CDG
+        
+        ### 📊 Z-Score de Prado
+        
+        Modelo estatístico que mede a probabilidade de uma empresa ir à falência:
+        - **< 1.81:** Risco Elevado
+        - **1.81 - 2.99:** Zona Cinzenta  
+        - **> 2.99:** Empresa Saudável
+        """)
 
 # ==============================================================================
 # ESTRUTURA PRINCIPAL DO APP
 # ==============================================================================
+
 def main():
-    st.title("Sistema de Controle Financeiro e Análise de Investimentos")
+    """Função principal do aplicativo."""
+    # Configurar diretórios
+    setup_diretorios()
+    
+    # Inicializar estado da sessão
     inicializar_session_state()
-    tab1, tab2, tab3 = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet"])
+    
+    # Título principal
+    st.title("🏦 Sistema Integrado de Controle Financeiro e Análise de Investimentos")
+    
+    # Menu principal em abas
+    tab1, tab2, tab3 = st.tabs([
+        "💰 Controle Financeiro", 
+        "📈 Análise de Valuation", 
+        "🔬 Modelo Fleuriet"
+    ])
+    
     with tab1:
         ui_controle_financeiro()
+    
     with tab2:
         ui_valuation()
+    
     with tab3:
         ui_modelo_fleuriet()
+    
+    # Footer com informações
+    st.markdown("---")
+    st.markdown(
+        "<div style='text-align: center; color: var(--text-secondary); padding: 20px;'>"
+        "🚀 Sistema desenvolvido para controle financeiro pessoal e análise de investimentos<br>"
+        "📊 Dados da CVM | 📈 Preços do Yahoo Finance | 🏦 Taxas do Banco Central"
+        "</div>", 
+        unsafe_allow_html=True
+    )
 
 if __name__ == "__main__":
     main()
-
