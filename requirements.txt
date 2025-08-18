@@ -4,10 +4,3 @@ yfinance>=0.2.0
 requests>=2.28.0
 plotly>=5.15.0
 numpy>=1.24.0
-pathlib
-warnings
-zipfile
-datetime
-uuid
-typing
-io
