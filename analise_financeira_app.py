@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 import os
 import pandas as pd
 import yfinance as yf
@@ -20,7 +19,7 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA STREAMLIT
 # ==============================================================================
-st.set_page_config(layout="wide", page_title="Análise de Valuation Avançada", page_icon="??")
+st.set_page_config(layout="wide", page_title="Análise de Valuation Avançada", page_icon="📊")
 
 CONFIG = {
     "DIRETORIO_BASE": Path.home() / "Documentos" / "Analise_Financeira_Automatizada",
@@ -58,57 +57,48 @@ def setup_diretorios():
         st.error(f"ERRO CRÍTICO ao criar diretórios: {e}")
         return False
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def preparar_dados_cvm(anos_historico):
     """Baixa, extrai e consolida os dados históricos da CVM."""
     ano_final = datetime.today().year
     ano_inicial = ano_final - anos_historico
     
-    status_placeholder = st.empty()
-    
-    demonstrativos_consolidados = {}
-    tipos_demonstrativos = ['DRE', 'BPA', 'BPP', 'DFC_MI']
+    with st.spinner(f"Verificando e baixando dados da CVM de {ano_inicial} a {ano_final-1}... Isso pode levar alguns minutos na primeira vez."):
+        demonstrativos_consolidados = {}
+        tipos_demonstrativos = ['DRE', 'BPA', 'BPP', 'DFC_MI']
 
-    for tipo in tipos_demonstrativos:
-        lista_dfs_anuais = []
-        for ano in range(ano_inicial, ano_final):
-            nome_arquivo_csv = f'dfp_cia_aberta_{tipo}_con_{ano}.csv'
-            caminho_arquivo = CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] / nome_arquivo_csv
+        for tipo in tipos_demonstrativos:
+            lista_dfs_anuais = []
+            for ano in range(ano_inicial, ano_final):
+                nome_arquivo_csv = f'dfp_cia_aberta_{tipo}_con_{ano}.csv'
+                caminho_arquivo = CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] / nome_arquivo_csv
 
-            if not caminho_arquivo.exists():
-                nome_zip = f'dfp_cia_aberta_{ano}.zip'
-                caminho_zip = CONFIG["DIRETORIO_DADOS_CVM"] / nome_zip
-                url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
+                if not caminho_arquivo.exists():
+                    nome_zip = f'dfp_cia_aberta_{ano}.zip'
+                    caminho_zip = CONFIG["DIRETORIO_DADOS_CVM"] / nome_zip
+                    url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
 
-                try:
-                    status_placeholder.info(f"Baixando dados da CVM para o ano {ano}...")
-                    response = requests.get(url_zip, stream=True, timeout=60)
-                    response.raise_for_status()
-                    with open(caminho_zip, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=812): f.write(chunk)
+                    try:
+                        response = requests.get(url_zip, stream=True, timeout=60)
+                        response.raise_for_status()
+                        with open(caminho_zip, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
 
-                    with ZipFile(caminho_zip, 'r') as z:
-                        if nome_arquivo_csv in z.namelist():
-                            z.extract(nome_arquivo_csv, CONFIG["DIRETORIO_DADOS_EXTRAIDOS"])
-                        else:
-                            continue
-                except requests.exceptions.HTTPError:
-                    continue # Pula anos não disponíveis
-                except Exception as e:
-                    st.warning(f"ERRO no download/extração para o ano {ano}: {e}")
-                    continue
+                        with ZipFile(caminho_zip, 'r') as z:
+                            if nome_arquivo_csv in z.namelist():
+                                z.extract(nome_arquivo_csv, CONFIG["DIRETORIO_DADOS_EXTRAIDOS"])
+                            else: continue
+                    except Exception: continue
 
-            if caminho_arquivo.exists():
-                try:
-                    df_anual = pd.read_csv(caminho_arquivo, sep=';', encoding='ISO-8859-1', low_memory=False)
-                    lista_dfs_anuais.append(df_anual)
-                except Exception:
-                    continue
-        
-        if lista_dfs_anuais:
-            demonstrativos_consolidados[tipo.lower()] = pd.concat(lista_dfs_anuais, ignore_index=True)
+                if caminho_arquivo.exists():
+                    try:
+                        df_anual = pd.read_csv(caminho_arquivo, sep=';', encoding='ISO-8859-1', low_memory=False)
+                        lista_dfs_anuais.append(df_anual)
+                    except Exception: continue
+            
+            if lista_dfs_anuais:
+                demonstrativos_consolidados[tipo.lower()] = pd.concat(lista_dfs_anuais, ignore_index=True)
 
-    status_placeholder.empty()
     return demonstrativos_consolidados
 
 @st.cache_data
@@ -183,8 +173,7 @@ def carregar_mapeamento_ticker_cvm():
 24601;CGRA4;GRAZZIOTIN S.A.
 19666;CIEL3;CIELO S.A.
 20230;CLSC4;CENTRAIS ELETRICAS DE SANTA CATARINA S.A.
-23586;CMIG3;COMPANHIA ENERGETICA DE MINAS GERAIS - CEMIG
-23586;CMIG4;COMPANHIA ENERGETICA DE MINAS GERAIS - CEMIG
+19348;CMIG3;COMPANHIA ENERGETICA DE MINAS GERAIS - CEMIG
 21067;COCE5;COELCE S.A.
 22610;COGN3;COGNA EDUCAÇÃO S.A.
 20687;CPFE3;CPFL ENERGIA S.A.
@@ -249,7 +238,7 @@ def carregar_mapeamento_ticker_cvm():
 22181;HBRE3;HBR REALTY EMPREENDIMENTOS IMOBILIARIOS S.A.
 22181;HETA4;HERCULES S.A. - FABRICA DE TALHERES
 22181;HGTX3;CIA. HERING
-22181;HBOR3;HEL ????BOR EMPREENDIMENTOS S.A.
+22181;HBOR3;HEL नाइथBOR EMPREENDIMENTOS S.A.
 22181;HYPE3;HYPERA S.A.
 21008;IFCM3;INFRICOMMERCE CXAAS S.A.
 24550;IGTI11;IGUA SANEAMENTO S.A.
@@ -434,19 +423,20 @@ def consulta_bc(codigo_bcb):
     except Exception:
         return None
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def obter_dados_mercado(periodo_ibov):
     """Busca a taxa livre de risco (Selic) e calcula o retorno de mercado (Ibovespa)."""
-    selic_anual = consulta_bc(1178)
-    risk_free_rate = selic_anual if selic_anual is not None else 0.15
+    with st.spinner("Buscando dados de mercado (Selic, Ibovespa)..."):
+        selic_anual = consulta_bc(1178)
+        risk_free_rate = selic_anual if selic_anual is not None else 0.15
 
-    ibov = yf.download('^BVSP', period=periodo_ibov, progress=False)
-    if not ibov.empty and 'Adj Close' in ibov.columns:
-        retorno_anual_mercado = ((1 + ibov['Adj Close'].pct_change().mean()) ** 252) - 1
-    else:
-        retorno_anual_mercado = 0.12 # Valor Padrão
+        ibov = yf.download('^BVSP', period=periodo_ibov, progress=False)
+        if not ibov.empty and 'Adj Close' in ibov.columns:
+            retorno_anual_mercado = ((1 + ibov['Adj Close'].pct_change().mean()) ** 252) - 1
+        else:
+            retorno_anual_mercado = 0.12 # Valor Padrão
 
-    premio_risco_mercado = retorno_anual_mercado - risk_free_rate
+        premio_risco_mercado = retorno_anual_mercado - risk_free_rate
     return risk_free_rate, retorno_anual_mercado, premio_risco_mercado, ibov
 
 # ==============================================================================
@@ -458,7 +448,6 @@ def obter_historico_metrica(df_empresa, codigo_conta):
     if metric_df.empty:
         return pd.Series(dtype=float)
     metric_df['DT_REFER'] = pd.to_datetime(metric_df['DT_REFER'])
-    # Agrupa por ano e pega o último valor disponível para aquele ano
     metric_df = metric_df.sort_values('DT_REFER').groupby(metric_df['DT_REFER'].dt.year).last()
     return metric_df['VL_CONTA'].sort_index()
 
@@ -508,7 +497,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
 
     if hist_lai.sum() == 0 or hist_ebit.empty: return None, "Dados de Lucro/EBIT insuficientes."
     
-    aliquota_efetiva = (abs(hist_impostos.sum()) / abs(hist_lai.sum()))
+    aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum())
     hist_nopat = hist_ebit * (1 - aliquota_efetiva)
 
     hist_dep_amort = obter_historico_metrica(empresa_dfc, C['DEPRECIACAO_AMORTIZACAO'])
@@ -550,7 +539,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     efv = riqueza_futura_esperada - riqueza_atual
 
     g = params['taxa_crescimento_perpetuidade']
-    if wacc <= g: return None, "WACC deve ser maior que a taxa de crescimento na perpetuidade."
+    if wacc <= g or pd.isna(wacc): return None, "WACC inválido ou menor/igual à taxa de crescimento."
     
     valor_residual = (fco_medio * (1 + g)) / (wacc - g)
     equity_value = valor_residual - divida_total
@@ -565,7 +554,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
         'Custo do Capital (WACC %)': wacc * 100, 'Spread (ROIC-WACC %)': (roic - wacc) * 100,
         'EVA (R$)': eva, 'EFV (R$)': efv,
         'hist_nopat': hist_nopat, 'hist_fco': hist_fco,
-        'hist_roic': (hist_nopat / capital_empregado) * 100, # ROIC Histórico simplificado
+        'hist_roic': (hist_nopat / capital_empregado) * 100,
         'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)
     }, "Análise concluída com sucesso."
 
@@ -576,33 +565,94 @@ def plotar_metricas_historicas(df_nopat, df_fco):
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df_nopat.index, y=df_nopat.values, name='NOPAT (Lucro Operacional)'))
     fig.add_trace(go.Bar(x=df_fco.index, y=df_fco.values, name='FCO (Fluxo de Caixa Operacional)'))
-    fig.update_layout(
-        title_text='Desempenho Histórico (NOPAT e FCO)',
-        xaxis_title='Ano',
-        yaxis_title='Valor (R$)',
-        barmode='group',
-        legend_title='Métrica'
-    )
+    fig.update_layout(title_text='Desempenho Histórico (NOPAT e FCO)', xaxis_title='Ano', yaxis_title='Valor (R$)', barmode='group', legend_title='Métrica')
     return fig
 
 def plotar_criacao_valor(df_roic, df_wacc):
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df_roic.index, y=df_roic.values, name='ROIC (%)'))
     fig.add_trace(go.Scatter(x=df_wacc.index, y=df_wacc.values, name='WACC (%)', mode='lines+markers', line=dict(color='firebrick', width=3, dash='dash')))
-    fig.update_layout(
-        title_text='Criação de Valor (ROIC vs. WACC)',
-        xaxis_title='Ano',
-        yaxis_title='Percentual (%)',
-        legend_title='Indicador'
-    )
+    fig.update_layout(title_text='Criação de Valor (ROIC vs. WACC)', xaxis_title='Ano', yaxis_title='Percentual (%)', legend_title='Indicador')
     return fig
+
+# ==============================================================================
+# FUNÇÕES DE RANKING
+# ==============================================================================
+def executar_analise_completa(ticker_map, demonstrativos, market_data, params, progress_bar, status_text):
+    """Executa a análise para todas as empresas da lista, atualizando a UI."""
+    todos_os_resultados = []
+    total_empresas = len(ticker_map)
+
+    for index, row in ticker_map.iterrows():
+        ticker = row['TICKER']
+        codigo_cvm = int(row['CD_CVM'])
+        ticker_sa = f"{ticker}.SA"
+
+        # Atualiza a interface do Streamlit
+        progress = (index + 1) / total_empresas
+        progress_bar.progress(progress, text=f"Analisando {index+1}/{total_empresas}: {ticker}")
+        
+        try:
+            resultados, _ = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params)
+            if resultados:
+                todos_os_resultados.append(resultados)
+        except Exception:
+            # Pula empresas com erros inesperados para não travar o processo
+            continue
+            
+    progress_bar.empty()
+    return todos_os_resultados
+
+@st.cache_data
+def convert_df_to_csv(df):
+   return df.to_csv(index=False, decimal=',', sep=';', encoding='utf-8-sig').encode('utf-8-sig')
+
+def exibir_rankings(df_final):
+    """Formata e exibe os DataFrames de ranking na interface."""
+    st.subheader("🏆 Rankings de Mercado")
+    
+    if df_final.empty:
+        st.warning("Nenhuma empresa pôde ser analisada com sucesso para gerar os rankings.")
+        return
+
+    rankings = {
+        "MARGEM_SEGURANCA": ("Ranking por Margem de Segurança", 'Margem Segurança (%)', ['Ticker', 'Empresa', 'Preço Atual (R$)', 'Preço Justo (R$)', 'Margem Segurança (%)']),
+        "ROIC": ("Ranking por ROIC", 'ROIC (%)', ['Ticker', 'Empresa', 'ROIC (%)', 'Spread (ROIC-WACC %)']),
+        "EVA": ("Ranking por EVA (Valor Econômico Adicionado)", 'EVA (R$)', ['Ticker', 'Empresa', 'EVA (R$)']),
+        "EFV": ("Ranking por EFV (Expectativa Futura de Valor)", 'EFV (R$)', ['Ticker', 'Empresa', 'EFV (R$)'])
+    }
+    
+    # Criar abas para cada ranking
+    tab_names = [config[0] for config in rankings.values()]
+    tabs = st.tabs(tab_names)
+
+    for i, (nome_ranking, (titulo, coluna_sort, colunas_view)) in enumerate(rankings.items()):
+        with tabs[i]:
+            df_sorted = df_final.sort_values(by=coluna_sort, ascending=False).reset_index(drop=True)
+            
+            # Formata as colunas para melhor visualização antes de imprimir
+            df_display = df_sorted[colunas_view].head(20).copy()
+            for col in df_display.columns:
+                if 'R$' in col: df_display[col] = df_display[col].apply(lambda x: f'R$ {x:,.2f}' if pd.notna(x) else 'N/A')
+                if '%' in col: df_display[col] = df_display[col].apply(lambda x: f'{x:.2f}%' if pd.notna(x) else 'N/A')
+            
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
+
+            # Botão de Download
+            csv = convert_df_to_csv(df_sorted[colunas_view])
+            st.download_button(
+                label=f"📥 Baixar Ranking Completo (.csv)",
+                data=csv,
+                file_name=f'ranking_{nome_ranking.lower()}.csv',
+                mime='text/csv',
+            )
 
 # ==============================================================================
 # INTERFACE DA APLICAÇÃO STREAMLIT
 # ==============================================================================
 def main():
-    st.title("?? Análise de Valuation Automatizada")
-    st.markdown("Uma ferramenta para análise fundamentalista de empresas da B3, utilizando dados públicos da CVM e o modelo de Discounted Cash Flow (DCF).")
+    st.title("📊 Análise de Valuation Automatizada")
+    st.markdown("Uma ferramenta para análise fundamentalista e scanner de mercado para empresas da B3.")
 
     # --- SETUP INICIAL ---
     if not setup_diretorios():
@@ -613,92 +663,85 @@ def main():
         st.error("Não foi possível carregar o mapeamento de tickers. A aplicação não pode continuar.")
         st.stop()
         
-    # --- BARRA LATERAL (INPUTS DO USUÁRIO) ---
-    with st.sidebar:
-        st.header("?? Configurações")
-        
-        # Selecionar Ticker
-        lista_tickers = sorted(ticker_cvm_map_df['TICKER'].unique())
-        ticker_selecionado = st.selectbox("Selecione o Ticker da Empresa", options=lista_tickers, index=lista_tickers.index('PETR4'))
-        
-        st.subheader("Parâmetros do Valuation")
-        # Parâmetros de Valuation ajustáveis
-        p_taxa_cresc = st.slider("Taxa de Crescimento na Perpetuidade (%)", 0.0, 10.0, CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"] * 100, 0.5) / 100
-        p_media_anos = st.number_input("Anos para Média de NOPAT/FCO", 1, CONFIG["HISTORICO_ANOS_CVM"], CONFIG["MEDIA_ANOS_CALCULO"])
-        p_periodo_beta = st.selectbox("Período para Cálculo do Beta", options=["1y", "2y", "5y", "10y"], index=2)
-        
-        analisar_btn = st.button("Analisar Empresa", type="primary", use_container_width=True)
+    # --- ABAS DE NAVEGAÇÃO ---
+    tab_individual, tab_ranking = st.tabs(["Análise de Ativo Individual", "🔍 Scanner de Mercado (Ranking)"])
 
-    if analisar_btn:
-        with st.spinner(f"Analisando {ticker_selecionado}, por favor aguarde..."):
-            # --- CARREGAMENTO DE DADOS GLOBAIS ---
+    # --- ABA 1: ANÁLISE INDIVIDUAL ---
+    with tab_individual:
+        st.header("Análise Detalhada por Empresa")
+
+        with st.form(key='individual_analysis_form'):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                lista_tickers = sorted(ticker_cvm_map_df['TICKER'].unique())
+                ticker_selecionado = st.selectbox("Selecione o Ticker da Empresa", options=lista_tickers, index=lista_tickers.index('PETR4'))
+            with col2:
+                analisar_btn = st.form_submit_button("Analisar Empresa", type="primary", use_container_width=True)
+        
+        with st.expander("Opções Avançadas de Valuation", expanded=False):
+            p_taxa_cresc = st.slider("Taxa de Crescimento na Perpetuidade (%)", 0.0, 10.0, CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"] * 100, 0.5) / 100
+            p_media_anos = st.number_input("Anos para Média de NOPAT/FCO", 1, CONFIG["HISTORICO_ANOS_CVM"], CONFIG["MEDIA_ANOS_CALCULO"])
+            p_periodo_beta = st.selectbox("Período para Cálculo do Beta", options=["1y", "2y", "5y", "10y"], index=2, key="beta_individual")
+
+        if analisar_btn:
             demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
-            if not all(k in demonstrativos for k in ['dre', 'bpa', 'bpp', 'dfc_mi']):
-                st.error("ERRO CRÍTICO: Falha ao carregar demonstrativos financeiros essenciais.")
-                st.stop()
-            
             market_data = obter_dados_mercado(p_periodo_beta)
             
-            # --- PROCESSAMENTO DA EMPRESA SELECIONADA ---
             ticker_sa = f"{ticker_selecionado}.SA"
             codigo_cvm_info = ticker_cvm_map_df[ticker_cvm_map_df['TICKER'] == ticker_selecionado]
-            if not codigo_cvm_info.empty:
-                codigo_cvm = int(codigo_cvm_info.iloc[0]['CD_CVM'])
-                
-                params_analise = {
-                    'taxa_crescimento_perpetuidade': p_taxa_cresc,
-                    'media_anos_calculo': p_media_anos,
-                    'periodo_beta_ibov': p_periodo_beta,
-                }
-                
+            codigo_cvm = int(codigo_cvm_info.iloc[0]['CD_CVM'])
+            
+            params_analise = {'taxa_crescimento_perpetuidade': p_taxa_cresc, 'media_anos_calculo': p_media_anos, 'periodo_beta_ibov': p_periodo_beta}
+            
+            with st.spinner(f"Analisando {ticker_selecionado}..."):
                 resultados, status_msg = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params_analise)
+            
+            if resultados:
+                st.success(f"Análise para **{resultados['Empresa']} ({resultados['Ticker']})** concluída!")
                 
-                if resultados:
-                    st.success(f"Análise para **{resultados['Empresa']} ({resultados['Ticker']})** concluída!")
-                    
-                    # --- APRESENTAÇÃO DOS RESULTADOS ---
-                    # Métricas Principais
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Preço Atual", f"R$ {resultados['Preço Atual (R$)']:.2f}")
-                    col2.metric("Preço Justo (DCF)", f"R$ {resultados['Preço Justo (R$)']:.2f}")
-                    col3.metric("Margem de Segurança", f"{resultados['Margem Segurança (%)']:.2f}%", delta=f"{resultados['Margem Segurança (%)']:.2f}%")
-                    
-                    st.divider()
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Preço Atual", f"R$ {resultados['Preço Atual (R$)']:.2f}")
+                col2.metric("Preço Justo (DCF)", f"R$ {resultados['Preço Justo (R$)']:.2f}")
+                ms_delta = resultados['Margem Segurança (%)']
+                col3.metric("Margem de Segurança", f"{ms_delta:.2f}%", delta=f"{ms_delta:.2f}%" if not pd.isna(ms_delta) else None)
+                st.divider()
 
-                    # Gráficos e Tabelas em Abas
-                    tab1, tab2, tab3 = st.tabs(["?? Resumo e Gráficos", "?? Tabela de Dados", "?? Premissas Utilizadas"])
-
-                    with tab1:
-                        st.subheader("Visualizações Gráficas")
-                        st.plotly_chart(plotar_metricas_historicas(resultados['hist_nopat'], resultados['hist_fco']), use_container_width=True)
-                        st.plotly_chart(plotar_criacao_valor(resultados['hist_roic'], resultados['wacc_series']), use_container_width=True)
-                    
-                    with tab2:
-                        st.subheader("Resultados Detalhados do Valuation")
-                        df_display = pd.DataFrame([resultados])
-                        # Remover colunas de dados históricos para a tabela
-                        df_display = df_display.drop(columns=['hist_nopat', 'hist_fco', 'hist_roic', 'wacc_series'])
-                        st.dataframe(df_display.T.rename(columns={0: 'Valor'}), use_container_width=True)
-                    
-                    with tab3:
-                        st.subheader("Premissas e Parâmetros")
-                        rf, rm, erp, _ = market_data
-                        st.write({
-                            "Taxa Livre de Risco (Selic)": f"{rf:.2%}",
-                            "Retorno Esperado de Mercado (IBOV)": f"{rm:.2%}",
-                            "Prêmio de Risco do Mercado": f"{erp:.2%}",
-                            "Beta da Ação": f"{resultados['Beta']:.2f}",
-                            "Custo de Capital Próprio (Ke)": f"{(rf + resultados['Beta'] * erp):.2%}",
-                            "Custo de Capital de Terceiros (Kd)": f"{(resultados['Custo do Capital (WACC %)'] / 100 - (resultados['Market Cap (R$)'] / (resultados['Market Cap (R$)'] + resultados['Dívida Total (R$)'])) * (rf + resultados['Beta'] * erp)) / ((resultados['Dívida Total (R$)'] / (resultados['Market Cap (R$)'] + resultados['Dívida Total (R$)']))):.2%}",
-                            "WACC (Custo Médio Ponderado de Capital)": f"{resultados['Custo do Capital (WACC %)']:.2f}%",
-                            "Taxa de Crescimento (g)": f"{p_taxa_cresc:.2%}"
-                        })
-
-                else:
-                    st.error(f"Não foi possível analisar {ticker_selecionado}. Motivo: {status_msg}")
+                tab_g, tab_d, tab_p = st.tabs(["📊 Gráficos", "🔢 Tabela de Dados", "📜 Premissas"])
+                with tab_g:
+                    st.plotly_chart(plotar_metricas_historicas(resultados['hist_nopat'], resultados['hist_fco']), use_container_width=True)
+                    st.plotly_chart(plotar_criacao_valor(resultados['hist_roic'], resultados['wacc_series']), use_container_width=True)
+                with tab_d:
+                    df_display = pd.DataFrame.from_dict(resultados, orient='index', columns=['Valor'])
+                    st.dataframe(df_display.drop(['hist_nopat', 'hist_fco', 'hist_roic', 'wacc_series']), use_container_width=True)
             else:
-                st.error(f"Ticker {ticker_selecionado} não encontrado no mapeamento.")
+                st.error(f"Não foi possível analisar {ticker_selecionado}. Motivo: {status_msg}")
+
+    # --- ABA 2: RANKING DE MERCADO ---
+    with tab_ranking:
+        st.header("Scanner de Mercado")
+        st.info("Esta análise processa todas as empresas da lista, o que pode levar vários minutos. Os dados da CVM e do mercado são cacheados para otimizar execuções futuras.")
+        
+        if st.button("🚀 Iniciar Análise Completa e Gerar Rankings", type="primary", use_container_width=True):
+            # Usar parâmetros padrão para a análise em lote
+            params_ranking = {
+                'taxa_crescimento_perpetuidade': CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"],
+                'media_anos_calculo': CONFIG["MEDIA_ANOS_CALCULO"],
+                'periodo_beta_ibov': CONFIG["PERIODO_BETA_IBOV"]
+            }
+
+            demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
+            market_data = obter_dados_mercado(params_ranking['periodo_beta_ibov'])
+
+            progress_bar = st.progress(0, text="Iniciando análise em lote...")
+            
+            resultados_completos = executar_analise_completa(ticker_cvm_map_df, demonstrativos, market_data, params_ranking, progress_bar, st.empty())
+            
+            if resultados_completos:
+                df_final = pd.DataFrame(resultados_completos)
+                st.success(f"Análise completa! {len(df_final)} de {len(ticker_cvm_map_df)} empresas foram processadas com sucesso.")
+                exibir_rankings(df_final)
+            else:
+                st.error("A análise em lote não retornou nenhum resultado válido.")
 
 if __name__ == "__main__":
-
     main()
