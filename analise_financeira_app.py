@@ -729,13 +729,12 @@ def ui_controle_financeiro():
 
 def calcular_beta(ticker, ibov_data, periodo_beta):
     """Calcula o Beta de uma ação em relação ao Ibovespa de forma robusta."""
-    dados_acao = yf.download(ticker, period=periodo_beta, progress=False)
-    if dados_acao.empty or 'Adj Close' not in dados_acao.columns:
+    dados_acao = yf.download(ticker, period=periodo_beta, progress=False, auto_adjust=True)['Close']
+    if dados_acao.empty:
         return 1.0
 
-    # CORREÇÃO: Alinha os dataframes e remove dias não negociados em ambos
-    dados_combinados = pd.concat([dados_acao['Adj Close'], ibov_data['Adj Close']], axis=1).dropna()
-    dados_combinados.columns = [ticker, '^BVSP']
+    # CORREÇÃO DEFINITIVA: Alinha os dataframes usando merge para garantir consistência
+    dados_combinados = pd.merge(dados_acao, ibov_data['Close'], left_index=True, right_index=True, suffixes=('_acao', '_ibov')).dropna()
     
     retornos_mensais = dados_combinados.resample('M').ffill().pct_change().dropna()
 
@@ -743,7 +742,7 @@ def calcular_beta(ticker, ibov_data, periodo_beta):
         return 1.0
 
     covariancia = retornos_mensais.cov().iloc[0, 1]
-    variancia_mercado = retornos_mensais['^BVSP'].var()
+    variancia_mercado = retornos_mensais.iloc[:, 1].var()
     
     return covariancia / variancia_mercado if variancia_mercado != 0 else 1.0
 
