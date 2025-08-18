@@ -75,13 +75,16 @@ st.markdown("""
         box-shadow: 0 2px 15px -5px var(--primary-accent);
     }
 
-    /* Métricas com Borda Neon Sutil */
+    /* Métricas com Borda Neon Sutil e Texto Branco */
     .stMetric {
         border: 1px solid var(--secondary-bg);
         border-radius: 8px;
         padding: 20px;
         background-color: var(--secondary-bg);
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    }
+    .stMetric label { /* Rótulo da métrica (ex: "Saldo") */
+        color: var(--text-color);
     }
     .stMetric > div:nth-child(2) { /* O valor da métrica */
         color: var(--header-color);
@@ -614,6 +617,21 @@ def ui_controle_financeiro():
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
     
+    # --- NOVOS CARDS DE RESUMO ---
+    total_receitas = df_trans[df_trans['Tipo'] == 'Receita']['Valor'].sum()
+    total_despesas = df_trans[df_trans['Tipo'] == 'Despesa']['Valor'].sum()
+    total_investido = df_trans[df_trans['Tipo'] == 'Investimento']['Valor'].sum()
+    saldo_mensal = total_receitas - total_despesas
+
+    st.subheader("Resumo Financeiro Total")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Receitas", f"R$ {total_receitas:,.2f}")
+    col2.metric("Despesas", f"R$ {total_despesas:,.2f}")
+    col3.metric("Investimentos", f"R$ {total_investido:,.2f}")
+    col4.metric("Saldo (Receitas - Despesas)", f"R$ {saldo_mensal:,.2f}", delta=f"{saldo_mensal:,.2f}")
+    
+    st.divider()
+
     invest_produtivos = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'].isin(['Ações BR', 'FIIs', 'Ações INT']))]['Valor'].sum()
     caixa = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'] == 'Caixa')]['Valor'].sum()
     
