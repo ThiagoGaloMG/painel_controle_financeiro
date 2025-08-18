@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import os
 import pandas as pd
 import yfinance as yf
@@ -12,13 +14,13 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-# Ignorar avisos para uma saÌda mais limpa
+# Ignorar avisos para uma sa√≠da mais limpa
 warnings.filterwarnings('ignore')
 
 # ==============================================================================
-# CONFIGURA«’ES GERAIS E LAYOUT DA P¡GINA STREAMLIT
+# CONFIGURA√á√ïES GERAIS E LAYOUT DA P√ÅGINA STREAMLIT
 # ==============================================================================
-st.set_page_config(layout="wide", page_title="An·lise de Valuation AvanÁada", page_icon="??")
+st.set_page_config(layout="wide", page_title="An√°lise de Valuation Avan√ßada", page_icon="??")
 
 CONFIG = {
     "DIRETORIO_BASE": Path.home() / "Documentos" / "Analise_Financeira_Automatizada",
@@ -40,25 +42,25 @@ CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] = CONFIG["DIRETORIO_BASE"] / "CVM_EXTRACTED"
 
 
 # ==============================================================================
-# FUN«’ES DE GEST√O DE DADOS (COM CACHE)
+# FUN√á√ïES DE GEST√ÉO DE DADOS (COM CACHE)
 # ==============================================================================
-# O decorador @st.cache_data garante que a funÁ„o sÛ ser· executada uma vez,
-# armazenando o resultado para uso futuro. Isso acelera drasticamente a aplicaÁ„o.
+# O decorador @st.cache_data garante que a fun√ß√£o s√≥ ser√° executada uma vez,
+# armazenando o resultado para uso futuro. Isso acelera drasticamente a aplica√ß√£o.
 
 @st.cache_data
 def setup_diretorios():
-    """Cria os diretÛrios necess·rios para armazenar os dados."""
+    """Cria os diret√≥rios necess√°rios para armazenar os dados."""
     try:
         CONFIG["DIRETORIO_DADOS_CVM"].mkdir(parents=True, exist_ok=True)
         CONFIG["DIRETORIO_DADOS_EXTRAIDOS"].mkdir(parents=True, exist_ok=True)
         return True
     except Exception as e:
-        st.error(f"ERRO CRÕTICO ao criar diretÛrios: {e}")
+        st.error(f"ERRO CR√çTICO ao criar diret√≥rios: {e}")
         return False
 
 @st.cache_data
 def preparar_dados_cvm(anos_historico):
-    """Baixa, extrai e consolida os dados histÛricos da CVM."""
+    """Baixa, extrai e consolida os dados hist√≥ricos da CVM."""
     ano_final = datetime.today().year
     ano_inicial = ano_final - anos_historico
     
@@ -91,9 +93,9 @@ def preparar_dados_cvm(anos_historico):
                         else:
                             continue
                 except requests.exceptions.HTTPError:
-                    continue # Pula anos n„o disponÌveis
+                    continue # Pula anos n√£o dispon√≠veis
                 except Exception as e:
-                    st.warning(f"ERRO no download/extraÁ„o para o ano {ano}: {e}")
+                    st.warning(f"ERRO no download/extra√ß√£o para o ano {ano}: {e}")
                     continue
 
             if caminho_arquivo.exists():
@@ -111,7 +113,7 @@ def preparar_dados_cvm(anos_historico):
 
 @st.cache_data
 def carregar_mapeamento_ticker_cvm():
-    """Carrega o mapeamento Tickers para CÛdigos CVM a partir de dados embutidos no cÛdigo."""
+    """Carrega o mapeamento Tickers para C√≥digos CVM a partir de dados embutidos no c√≥digo."""
     mapeamento_csv_data = """CD_CVM;Ticker;Nome_Empresa
 25330;ALLD3;ALLIED TECNOLOGIA S.A.
 10456;ALPA4;ALPARGATAS S.A.
@@ -124,20 +126,20 @@ def carregar_mapeamento_ticker_cvm():
 12823;APTI4;SIDERURGICA J. L. ALIPERTI S.A.
 26069;ARML3;ARMAC LOCACAO LOGISTICA E SERVICOS S.A.
 19771;ARTR3;ARTERIS S.A.
-18687;ATMP3;ATMA PARTICIPA«’ES S.A.
-24171;CRFB3;ATACAD√O S.A.
+18687;ATMP3;ATMA PARTICIPA√á√ïES S.A.
+24171;CRFB3;ATACAD√ÉO S.A.
 26590;AURA33;AURA MINERALS INC.
 26620;AURE3;AUREN ENERGIA S.A.
 24112;AZUL4;AZUL S.A.
 11975;AZEV4;AZEVEDO & TRAVASSOS S.A.
 23990;BAHI3;BAHEMA S.A.
-19321;B3SA3;B3 S.A. - BRASIL, BOLSA, BALC√O
+19321;B3SA3;B3 S.A. - BRASIL, BOLSA, BALC√ÉO
 14349;BAZA3;BANCO DA AMAZONIA S.A.
 20562;BBAS3;BANCO DO BRASIL S.A.
 20554;BBDC3;BANCO BRADESCO S.A.
 20554;BBDC4;BANCO BRADESCO S.A.
-21091;BBRK3;BR BROKERS PARTICIPA«’ES S.A.
-23438;BBSE3;BB SEGURIDADE PARTICIPA«’ES S.A.
+21091;BBRK3;BR BROKERS PARTICIPA√á√ïES S.A.
+23438;BBSE3;BB SEGURIDADE PARTICIPA√á√ïES S.A.
 21210;BEEF3;MINERVA S.A.
 23000;BIDI11;BANCO INTER S.A.
 23000;BIDI4;BANCO INTER S.A.
@@ -146,7 +148,7 @@ def carregar_mapeamento_ticker_cvm():
 1023;BMIN4;BANCO MERCANTIL DE INVESTIMENTOS S.A.
 19615;BMOB3;BEMOBI TECH S.A.
 416;BNBR3;BANCO DO NORDESTE DO BRASIL S.A.
-21511;BOAS3;BOA VISTA SERVI«OS S.A.
+21511;BOAS3;BOA VISTA SERVI√áOS S.A.
 20382;BPAC11;BANCO BTG PACTUAL S.A.
 20382;BPAC5;BANCO BTG PACTUAL S.A.
 20695;BPAN4;BANCO PAN S.A.
@@ -159,11 +161,11 @@ def carregar_mapeamento_ticker_cvm():
 21245;BRGE8;CONSORCIO ALFA DE ADMINISTRACAO S.A.
 21385;BRIV4;ALFA HOLDINGS S.A.
 20471;BRKM5;BRASKEM S.A.
-21800;BRML3;BR MALLS PARTICIPA«’ES S.A.
+21800;BRML3;BR MALLS PARTICIPA√á√ïES S.A.
 19844;BRPR3;BR PROPERTIES S.A.
 20087;BRSR6;BANCO DO ESTADO DO RIO GRANDE DO SUL S.A.
 19658;BSLI4;BANCO DE BRASILIA S.A.
-25380;CASH3;M…LIUZ S.A.
+25380;CASH3;M√âLIUZ S.A.
 21622;CAML3;CAMIL ALIMENTOS S.A.
 2473;CCRO3;CCR S.A.
 19860;CEAB3;C&A MODAS S.A.
@@ -184,7 +186,7 @@ def carregar_mapeamento_ticker_cvm():
 23586;CMIG3;COMPANHIA ENERGETICA DE MINAS GERAIS - CEMIG
 23586;CMIG4;COMPANHIA ENERGETICA DE MINAS GERAIS - CEMIG
 21067;COCE5;COELCE S.A.
-22610;COGN3;COGNA EDUCA«√O S.A.
+22610;COGN3;COGNA EDUCA√á√ÉO S.A.
 20687;CPFE3;CPFL ENERGIA S.A.
 21819;CPLE3;COMPANHIA PARANAENSE DE ENERGIA - COPEL
 21819;CPLE6;COMPANHIA PARANAENSE DE ENERGIA - COPEL
@@ -199,7 +201,7 @@ def carregar_mapeamento_ticker_cvm():
 25089;CTSA4;SANTANENSE S.A.
 22343;CURY3;CURY CONSTRUTORA E INCORPORADORA S.A.
 22555;CVCB3;CVC BRASIL OPERADORA E AGENCIA DE VIAGENS S.A.
-22598;CYRE3;CYRELA BRAZIL REALTY S.A. EMPREENDIMENTOS E PARTICIPA«’ES
+22598;CYRE3;CYRELA BRAZIL REALTY S.A. EMPREENDIMENTOS E PARTICIPA√á√ïES
 25537;DASA3;DIAGNOSTICOS DA AMERICA S.A.
 21991;DIRR3;DIRECIONAL ENGENHARIA S.A.
 25232;DMMO3;DOMMO ENERGIA S.A.
@@ -213,7 +215,7 @@ def carregar_mapeamento_ticker_cvm():
 25510;ELMD3;ELETROMIDIA S.A.
 23197;EMAE4;EMAE - EMPRESA METROPOLITANA DE AGUAS E ENERGIA S.A.
 20589;EMBR3;EMBRAER S.A.
-22491;ENAT3;ENAUTA PARTICIPA«’ES S.A.
+22491;ENAT3;ENAUTA PARTICIPA√á√ïES S.A.
 22653;ENBR3;ENERGIAS DO BRASIL S.A.
 24413;ENEV3;ENEVA S.A.
 22670;ENGI11;ENERGISA S.A.
@@ -223,7 +225,7 @@ def carregar_mapeamento_ticker_cvm():
 19965;EQPA5;EQUATORIAL PARA DISTRIBUIDORA DE ENERGIA S.A.
 19965;EQPA7;EQUATORIAL PARA DISTRIBUIDORA DE ENERGIA S.A.
 20331;EQTL3;EQUATORIAL ENERGIA S.A.
-22036;ESPA3;ESPA«OLASER SERVI«OS EST…TICOS S.A.
+22036;ESPA3;ESPA√áOLASER SERVI√áOS EST√âTICOS S.A.
 14217;ESTR4;ESTRELA MANUFATURA DE BRINQUEDOS S.A.
 19607;ETER3;ETERNIT S.A.
 22087;EUCA4;EUCATEX S.A. INDUSTRIA E COMERCIO
@@ -242,7 +244,7 @@ def carregar_mapeamento_ticker_cvm():
 23205;GOLL4;GOL LINHAS AEREAS INTELIGENTES S.A.
 25020;GRND3;GRENDENE S.A.
 20833;GUAR3;GUARARAPES CONFECCOES S.A.
-23981;HAPV3;HAPVIDA PARTICIPA«’ES E INVESTIMENTOS S.A.
+23981;HAPV3;HAPVIDA PARTICIPA√á√ïES E INVESTIMENTOS S.A.
 22483;HBSA3;HIDROVIAS DO BRASIL S.A.
 22181;HBRE3;HBR REALTY EMPREENDIMENTOS IMOBILIARIOS S.A.
 22181;HETA4;HERCULES S.A. - FABRICA DE TALHERES
@@ -387,26 +389,26 @@ def carregar_mapeamento_ticker_cvm():
 23280;WEGE3;WEG S.A.
 23280;WIZS3;WIZ SOLUCOES E CORRETAGEM DE SEGUROS S.A.
 23280;YDUQ3;YDUQS PARTICIPACOES S.A.
-25801;REDE3;REDE ENERGIA PARTICIPA«’ES S.A.
-25810;GGPS3;GPS PARTICIPA«’ES E EMPREENDIMENTOS S.A.
-25836;BLAU3;BLAU FARMAC UTICA S.A.
+25801;REDE3;REDE ENERGIA PARTICIPA√á√ïES S.A.
+25810;GGPS3;GPS PARTICIPA√á√ïES E EMPREENDIMENTOS S.A.
+25836;BLAU3;BLAU FARMAC√äUTICA S.A.
 25860;BRBI11;BRBI BR PARTNERS S.A
-25879;KRSA3;KORA SA⁄DE PARTICIPA«’ES S.A.
-25895;LVTC3;LIVETECH DA BAHIA IND⁄STRIA E COM…RCIO S.A.
-25917;RAIZ4;RAÕZEN S.A.
-25950;TTEN3;TR S TENTOS AGROINDUSTRIAL S.A.
+25879;KRSA3;KORA SA√öDE PARTICIPA√á√ïES S.A.
+25895;LVTC3;LIVETECH DA BAHIA IND√öSTRIA E COM√âRCIO S.A.
+25917;RAIZ4;RA√çZEN S.A.
+25950;TTEN3;TR√äS TENTOS AGROINDUSTRIAL S.A.
 25984;CBAV3;COMPANHIA BRASILEIRA DE ALUMINIO
-26000;LAND3;TERRA SANTA PROPRIEDADES AGRÕCOLAS S.A.
+26000;LAND3;TERRA SANTA PROPRIEDADES AGR√çCOLAS S.A.
 26026;DESK3;DESKTOP S.A
 26034;MLAS3;GRUPO MULTI S.A.
-26050;FIQE3;UNIFIQUE TELECOMUNICA«’ES S.A.
-26069;ARML3;ARMAC LOCA«√O LOGÕSTICA E SERVI«OS S.A.
+26050;FIQE3;UNIFIQUE TELECOMUNICA√á√ïES S.A.
+26069;ARML3;ARMAC LOCA√á√ÉO LOG√çSTICA E SERVI√áOS S.A.
 26077;TRAD3;TC S.A.
-26123;ONCO3;ONCOCLÕNICAS DO BRASIL SERVI«OS M…DICOS S.A.
-26174;AURE3;AUREN OPERA«’ES S.A.
+26123;ONCO3;ONCOCL√çNICAS DO BRASIL SERVI√áOS M√âDICOS S.A.
+26174;AURE3;AUREN OPERA√á√ïES S.A.
 26247;PORT3;WILSON SONS S.A.
 26441;SRNA3;SERENA ENERGIA S.A.
-26484;NEXP3;NEXPE PARTICIPA«’ES S.A.
+26484;NEXP3;NEXPE PARTICIPA√á√ïES S.A.
 """
     try:
         df = pd.read_csv(io.StringIO(mapeamento_csv_data), sep=';', encoding='utf-8')
@@ -419,7 +421,7 @@ def carregar_mapeamento_ticker_cvm():
         df = df.dropna(subset=['CD_CVM']).drop_duplicates(subset=['TICKER'])
         return df
     except Exception as e:
-        st.error(f"ERRO CRÕTICO ao carregar mapeamento: {e}")
+        st.error(f"ERRO CR√çTICO ao carregar mapeamento: {e}")
         return pd.DataFrame()
 
 def consulta_bc(codigo_bcb):
@@ -442,26 +444,26 @@ def obter_dados_mercado(periodo_ibov):
     if not ibov.empty and 'Adj Close' in ibov.columns:
         retorno_anual_mercado = ((1 + ibov['Adj Close'].pct_change().mean()) ** 252) - 1
     else:
-        retorno_anual_mercado = 0.12 # Valor Padr„o
+        retorno_anual_mercado = 0.12 # Valor Padr√£o
 
     premio_risco_mercado = retorno_anual_mercado - risk_free_rate
     return risk_free_rate, retorno_anual_mercado, premio_risco_mercado, ibov
 
 # ==============================================================================
-# L”GICA DE VALUATION E AN¡LISE
+# L√ìGICA DE VALUATION E AN√ÅLISE
 # ==============================================================================
 def obter_historico_metrica(df_empresa, codigo_conta):
-    """Extrai o histÛrico de uma mÈtrica financeira."""
-    metric_df = df_empresa[(df_empresa['CD_CONTA'] == codigo_conta) & (df_empresa['ORDEM_EXERC'] == '⁄LTIMO')]
+    """Extrai o hist√≥rico de uma m√©trica financeira."""
+    metric_df = df_empresa[(df_empresa['CD_CONTA'] == codigo_conta) & (df_empresa['ORDEM_EXERC'] == '√öLTIMO')]
     if metric_df.empty:
         return pd.Series(dtype=float)
     metric_df['DT_REFER'] = pd.to_datetime(metric_df['DT_REFER'])
-    # Agrupa por ano e pega o ˙ltimo valor disponÌvel para aquele ano
+    # Agrupa por ano e pega o √∫ltimo valor dispon√≠vel para aquele ano
     metric_df = metric_df.sort_values('DT_REFER').groupby(metric_df['DT_REFER'].dt.year).last()
     return metric_df['VL_CONTA'].sort_index()
 
 def calcular_beta(ticker, ibov_data, periodo_beta):
-    """Calcula o Beta de uma aÁ„o em relaÁ„o ao Ibovespa."""
+    """Calcula o Beta de uma a√ß√£o em rela√ß√£o ao Ibovespa."""
     dados_acao = yf.download(ticker, period=periodo_beta, progress=False)
     if dados_acao.empty or 'Adj Close' not in dados_acao.columns: return 1.0
 
@@ -476,7 +478,7 @@ def calcular_beta(ticker, ibov_data, periodo_beta):
     return covariancia / variancia_mercado if variancia_mercado != 0 else 1.0
 
 def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params):
-    """Orquestra o processo de c·lculo de valuation para uma empresa."""
+    """Orquestra o processo de c√°lculo de valuation para uma empresa."""
     (risk_free_rate, _, premio_risco_mercado, ibov_data) = market_data
     dre, bpa, bpp, dfc = demonstrativos['dre'], demonstrativos['bpa'], demonstrativos['bpp'], demonstrativos['dfc_mi']
 
@@ -486,7 +488,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm]
 
     if any(df.empty for df in [empresa_dre, empresa_bpa, empresa_bpp, empresa_dfc]):
-        return None, "Dados CVM histÛricos incompletos."
+        return None, "Dados CVM hist√≥ricos incompletos."
 
     try:
         info = yf.Ticker(ticker_sa).info
@@ -522,7 +524,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
         divida_lp = obter_historico_metrica(empresa_bpp, C['DIVIDA_LONGO_PRAZO']).iloc[-1]
         desp_financeira = abs(obter_historico_metrica(empresa_dre, C['DESPESAS_FINANCEIRAS']).iloc[-1])
     except IndexError:
-        return None, "Dados de balanÁo patrimonial ausentes ou incompletos."
+        return None, "Dados de balan√ßo patrimonial ausentes ou incompletos."
 
     ncg = contas_a_receber + estoques - fornecedores
     capital_empregado = ncg + ativo_imobilizado + ativo_intangivel
@@ -530,7 +532,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
 
     nopat_medio = hist_nopat.tail(params['media_anos_calculo']).mean()
     fco_medio = hist_fco.tail(params['media_anos_calculo']).mean()
-    if pd.isna(nopat_medio) or pd.isna(fco_medio): return None, "N„o foi possÌvel calcular NOPAT ou FCO mÈdio."
+    if pd.isna(nopat_medio) or pd.isna(fco_medio): return None, "N√£o foi poss√≠vel calcular NOPAT ou FCO m√©dio."
 
     roic = nopat_medio / capital_empregado
     divida_total = divida_cp + divida_lp
@@ -557,29 +559,29 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
 
     return {
         'Empresa': nome_empresa, 'Ticker': ticker_sa.replace('.SA', ''),
-        'PreÁo Atual (R$)': preco_atual, 'PreÁo Justo (R$)': preco_justo, 'Margem SeguranÁa (%)': margem_seguranca * 100,
-        'Market Cap (R$)': market_cap, 'Capital Empregado (R$)': capital_empregado, 'DÌvida Total (R$)': divida_total,
-        'NOPAT MÈdio (R$)': nopat_medio, 'ROIC (%)': roic * 100, 'Beta': beta,
+        'Pre√ßo Atual (R$)': preco_atual, 'Pre√ßo Justo (R$)': preco_justo, 'Margem Seguran√ßa (%)': margem_seguranca * 100,
+        'Market Cap (R$)': market_cap, 'Capital Empregado (R$)': capital_empregado, 'D√≠vida Total (R$)': divida_total,
+        'NOPAT M√©dio (R$)': nopat_medio, 'ROIC (%)': roic * 100, 'Beta': beta,
         'Custo do Capital (WACC %)': wacc * 100, 'Spread (ROIC-WACC %)': (roic - wacc) * 100,
         'EVA (R$)': eva, 'EFV (R$)': efv,
         'hist_nopat': hist_nopat, 'hist_fco': hist_fco,
-        'hist_roic': (hist_nopat / capital_empregado) * 100, # ROIC HistÛrico simplificado
+        'hist_roic': (hist_nopat / capital_empregado) * 100, # ROIC Hist√≥rico simplificado
         'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)
-    }, "An·lise concluÌda com sucesso."
+    }, "An√°lise conclu√≠da com sucesso."
 
 # ==============================================================================
-# FUN«’ES DE VISUALIZA«√O (GR¡FICOS)
+# FUN√á√ïES DE VISUALIZA√á√ÉO (GR√ÅFICOS)
 # ==============================================================================
 def plotar_metricas_historicas(df_nopat, df_fco):
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df_nopat.index, y=df_nopat.values, name='NOPAT (Lucro Operacional)'))
     fig.add_trace(go.Bar(x=df_fco.index, y=df_fco.values, name='FCO (Fluxo de Caixa Operacional)'))
     fig.update_layout(
-        title_text='Desempenho HistÛrico (NOPAT e FCO)',
+        title_text='Desempenho Hist√≥rico (NOPAT e FCO)',
         xaxis_title='Ano',
         yaxis_title='Valor (R$)',
         barmode='group',
-        legend_title='MÈtrica'
+        legend_title='M√©trica'
     )
     return fig
 
@@ -588,7 +590,7 @@ def plotar_criacao_valor(df_roic, df_wacc):
     fig.add_trace(go.Bar(x=df_roic.index, y=df_roic.values, name='ROIC (%)'))
     fig.add_trace(go.Scatter(x=df_wacc.index, y=df_wacc.values, name='WACC (%)', mode='lines+markers', line=dict(color='firebrick', width=3, dash='dash')))
     fig.update_layout(
-        title_text='CriaÁ„o de Valor (ROIC vs. WACC)',
+        title_text='Cria√ß√£o de Valor (ROIC vs. WACC)',
         xaxis_title='Ano',
         yaxis_title='Percentual (%)',
         legend_title='Indicador'
@@ -596,11 +598,11 @@ def plotar_criacao_valor(df_roic, df_wacc):
     return fig
 
 # ==============================================================================
-# INTERFACE DA APLICA«√O STREAMLIT
+# INTERFACE DA APLICA√á√ÉO STREAMLIT
 # ==============================================================================
 def main():
-    st.title("?? An·lise de Valuation Automatizada")
-    st.markdown("Uma ferramenta para an·lise fundamentalista de empresas da B3, utilizando dados p˙blicos da CVM e o modelo de Discounted Cash Flow (DCF).")
+    st.title("?? An√°lise de Valuation Automatizada")
+    st.markdown("Uma ferramenta para an√°lise fundamentalista de empresas da B3, utilizando dados p√∫blicos da CVM e o modelo de Discounted Cash Flow (DCF).")
 
     # --- SETUP INICIAL ---
     if not setup_diretorios():
@@ -608,22 +610,22 @@ def main():
     
     ticker_cvm_map_df = carregar_mapeamento_ticker_cvm()
     if ticker_cvm_map_df.empty:
-        st.error("N„o foi possÌvel carregar o mapeamento de tickers. A aplicaÁ„o n„o pode continuar.")
+        st.error("N√£o foi poss√≠vel carregar o mapeamento de tickers. A aplica√ß√£o n√£o pode continuar.")
         st.stop()
         
-    # --- BARRA LATERAL (INPUTS DO USU¡RIO) ---
+    # --- BARRA LATERAL (INPUTS DO USU√ÅRIO) ---
     with st.sidebar:
-        st.header("?? ConfiguraÁıes")
+        st.header("?? Configura√ß√µes")
         
         # Selecionar Ticker
         lista_tickers = sorted(ticker_cvm_map_df['TICKER'].unique())
         ticker_selecionado = st.selectbox("Selecione o Ticker da Empresa", options=lista_tickers, index=lista_tickers.index('PETR4'))
         
-        st.subheader("Par‚metros do Valuation")
-        # Par‚metros de Valuation ajust·veis
+        st.subheader("Par√¢metros do Valuation")
+        # Par√¢metros de Valuation ajust√°veis
         p_taxa_cresc = st.slider("Taxa de Crescimento na Perpetuidade (%)", 0.0, 10.0, CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"] * 100, 0.5) / 100
-        p_media_anos = st.number_input("Anos para MÈdia de NOPAT/FCO", 1, CONFIG["HISTORICO_ANOS_CVM"], CONFIG["MEDIA_ANOS_CALCULO"])
-        p_periodo_beta = st.selectbox("PerÌodo para C·lculo do Beta", options=["1y", "2y", "5y", "10y"], index=2)
+        p_media_anos = st.number_input("Anos para M√©dia de NOPAT/FCO", 1, CONFIG["HISTORICO_ANOS_CVM"], CONFIG["MEDIA_ANOS_CALCULO"])
+        p_periodo_beta = st.selectbox("Per√≠odo para C√°lculo do Beta", options=["1y", "2y", "5y", "10y"], index=2)
         
         analisar_btn = st.button("Analisar Empresa", type="primary", use_container_width=True)
 
@@ -632,7 +634,7 @@ def main():
             # --- CARREGAMENTO DE DADOS GLOBAIS ---
             demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
             if not all(k in demonstrativos for k in ['dre', 'bpa', 'bpp', 'dfc_mi']):
-                st.error("ERRO CRÕTICO: Falha ao carregar demonstrativos financeiros essenciais.")
+                st.error("ERRO CR√çTICO: Falha ao carregar demonstrativos financeiros essenciais.")
                 st.stop()
             
             market_data = obter_dados_mercado(p_periodo_beta)
@@ -652,50 +654,51 @@ def main():
                 resultados, status_msg = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params_analise)
                 
                 if resultados:
-                    st.success(f"An·lise para **{resultados['Empresa']} ({resultados['Ticker']})** concluÌda!")
+                    st.success(f"An√°lise para **{resultados['Empresa']} ({resultados['Ticker']})** conclu√≠da!")
                     
-                    # --- APRESENTA«√O DOS RESULTADOS ---
-                    # MÈtricas Principais
+                    # --- APRESENTA√á√ÉO DOS RESULTADOS ---
+                    # M√©tricas Principais
                     col1, col2, col3 = st.columns(3)
-                    col1.metric("PreÁo Atual", f"R$ {resultados['PreÁo Atual (R$)']:.2f}")
-                    col2.metric("PreÁo Justo (DCF)", f"R$ {resultados['PreÁo Justo (R$)']:.2f}")
-                    col3.metric("Margem de SeguranÁa", f"{resultados['Margem SeguranÁa (%)']:.2f}%", delta=f"{resultados['Margem SeguranÁa (%)']:.2f}%")
+                    col1.metric("Pre√ßo Atual", f"R$ {resultados['Pre√ßo Atual (R$)']:.2f}")
+                    col2.metric("Pre√ßo Justo (DCF)", f"R$ {resultados['Pre√ßo Justo (R$)']:.2f}")
+                    col3.metric("Margem de Seguran√ßa", f"{resultados['Margem Seguran√ßa (%)']:.2f}%", delta=f"{resultados['Margem Seguran√ßa (%)']:.2f}%")
                     
                     st.divider()
 
-                    # Gr·ficos e Tabelas em Abas
-                    tab1, tab2, tab3 = st.tabs(["?? Resumo e Gr·ficos", "?? Tabela de Dados", "?? Premissas Utilizadas"])
+                    # Gr√°ficos e Tabelas em Abas
+                    tab1, tab2, tab3 = st.tabs(["?? Resumo e Gr√°ficos", "?? Tabela de Dados", "?? Premissas Utilizadas"])
 
                     with tab1:
-                        st.subheader("VisualizaÁıes Gr·ficas")
+                        st.subheader("Visualiza√ß√µes Gr√°ficas")
                         st.plotly_chart(plotar_metricas_historicas(resultados['hist_nopat'], resultados['hist_fco']), use_container_width=True)
                         st.plotly_chart(plotar_criacao_valor(resultados['hist_roic'], resultados['wacc_series']), use_container_width=True)
                     
                     with tab2:
                         st.subheader("Resultados Detalhados do Valuation")
                         df_display = pd.DataFrame([resultados])
-                        # Remover colunas de dados histÛricos para a tabela
+                        # Remover colunas de dados hist√≥ricos para a tabela
                         df_display = df_display.drop(columns=['hist_nopat', 'hist_fco', 'hist_roic', 'wacc_series'])
                         st.dataframe(df_display.T.rename(columns={0: 'Valor'}), use_container_width=True)
                     
                     with tab3:
-                        st.subheader("Premissas e Par‚metros")
+                        st.subheader("Premissas e Par√¢metros")
                         rf, rm, erp, _ = market_data
                         st.write({
                             "Taxa Livre de Risco (Selic)": f"{rf:.2%}",
                             "Retorno Esperado de Mercado (IBOV)": f"{rm:.2%}",
-                            "PrÍmio de Risco do Mercado": f"{erp:.2%}",
-                            "Beta da AÁ„o": f"{resultados['Beta']:.2f}",
-                            "Custo de Capital PrÛprio (Ke)": f"{(rf + resultados['Beta'] * erp):.2%}",
-                            "Custo de Capital de Terceiros (Kd)": f"{(resultados['Custo do Capital (WACC %)'] / 100 - (resultados['Market Cap (R$)'] / (resultados['Market Cap (R$)'] + resultados['DÌvida Total (R$)'])) * (rf + resultados['Beta'] * erp)) / ((resultados['DÌvida Total (R$)'] / (resultados['Market Cap (R$)'] + resultados['DÌvida Total (R$)']))):.2%}",
-                            "WACC (Custo MÈdio Ponderado de Capital)": f"{resultados['Custo do Capital (WACC %)']:.2f}%",
+                            "Pr√™mio de Risco do Mercado": f"{erp:.2%}",
+                            "Beta da A√ß√£o": f"{resultados['Beta']:.2f}",
+                            "Custo de Capital Pr√≥prio (Ke)": f"{(rf + resultados['Beta'] * erp):.2%}",
+                            "Custo de Capital de Terceiros (Kd)": f"{(resultados['Custo do Capital (WACC %)'] / 100 - (resultados['Market Cap (R$)'] / (resultados['Market Cap (R$)'] + resultados['D√≠vida Total (R$)'])) * (rf + resultados['Beta'] * erp)) / ((resultados['D√≠vida Total (R$)'] / (resultados['Market Cap (R$)'] + resultados['D√≠vida Total (R$)']))):.2%}",
+                            "WACC (Custo M√©dio Ponderado de Capital)": f"{resultados['Custo do Capital (WACC %)']:.2f}%",
                             "Taxa de Crescimento (g)": f"{p_taxa_cresc:.2%}"
                         })
 
                 else:
-                    st.error(f"N„o foi possÌvel analisar {ticker_selecionado}. Motivo: {status_msg}")
+                    st.error(f"N√£o foi poss√≠vel analisar {ticker_selecionado}. Motivo: {status_msg}")
             else:
-                st.error(f"Ticker {ticker_selecionado} n„o encontrado no mapeamento.")
+                st.error(f"Ticker {ticker_selecionado} n√£o encontrado no mapeamento.")
 
 if __name__ == "__main__":
+
     main()
