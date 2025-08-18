@@ -33,7 +33,7 @@ st.markdown("""
         --secondary-accent: #E94560; /* Vermelho/rosa neon para contraste */
         --positive-accent: #00FF87; /* Verde neon */
         --text-color: #E0E0E0; /* Cinza claro para texto, menos cansativo */
-        --header-color: #FFFFFF; /* Branco puro para títulos */
+        --header-color: #FFFFFF; /* Branco puro para títulos e labels importantes */
         --border-color: #5372F0; /* Borda azul sutil */
     }
 
@@ -108,16 +108,16 @@ st.markdown("""
         transform: scale(0.98);
     }
 
-    /* Expanders */
+    /* Expanders e Formulário com Texto Branco */
     [data-testid="stExpander"] {
         background-color: var(--secondary-bg);
         border: 1px solid var(--border-color);
         border-radius: 8px;
     }
-    [data-testid="stExpander"] summary {
+    [data-testid="stExpander"] summary, [data-testid="stForm"] label {
         font-size: 1.1em;
         font-weight: 600;
-        color: var(--header-color);
+        color: var(--header-color) !important;
     }
 
     /* Barras de progresso */
@@ -569,22 +569,25 @@ def ui_controle_financeiro():
                 data = st.date_input("Data", datetime.now())
                 tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
                 
-                # --- LÓGICA DE CATEGORIAS APRIMORADA ---
                 categoria_final = None
                 sub_arca = None
 
                 if tipo == "Investimento":
-                    # Campo ARCA aparece somente para Investimentos
-                    categoria_final = st.selectbox("Categoria (Metodologia ARCA)", options=st.session_state.categories['Investimento'], key="arca_cat")
-                    sub_arca = categoria_final
+                    categoria_selecionada = st.selectbox("Categoria (Metodologia ARCA)", 
+                                                         options=st.session_state.categories['Investimento'], 
+                                                         key="arca_cat")
+                    categoria_final = categoria_selecionada
+                    sub_arca = categoria_selecionada
                 else:
-                    # Lógica para criar categorias de Receita/Despesa
+                    label_categoria = "Categoria" # Label genérico
                     opcoes_categoria = st.session_state.categories[tipo] + ["--- Adicionar Nova Categoria ---"]
-                    categoria_selecionada = st.selectbox(f"Categoria de {tipo}", options=opcoes_categoria, key=f"cat_{tipo}")
+                    categoria_selecionada = st.selectbox(label_categoria, 
+                                                         options=opcoes_categoria, 
+                                                         key=f"cat_{tipo}")
                     
                     if categoria_selecionada == "--- Adicionar Nova Categoria ---":
                         nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
-                        if nova_categoria: # Usa a nova categoria se o usuário digitar algo
+                        if nova_categoria:
                             categoria_final = nova_categoria
                     else:
                         categoria_final = categoria_selecionada
@@ -594,7 +597,6 @@ def ui_controle_financeiro():
                 submitted = st.form_submit_button("Adicionar Lançamento")
 
                 if submitted and categoria_final:
-                    # Adiciona a nova categoria à lista da sessão, se for nova
                     if tipo != "Investimento" and categoria_final not in st.session_state.categories[tipo]:
                         st.session_state.categories[tipo].append(categoria_final)
 
@@ -617,18 +619,18 @@ def ui_controle_financeiro():
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
     
-    # --- NOVOS CARDS DE RESUMO ---
     total_receitas = df_trans[df_trans['Tipo'] == 'Receita']['Valor'].sum()
     total_despesas = df_trans[df_trans['Tipo'] == 'Despesa']['Valor'].sum()
     total_investido = df_trans[df_trans['Tipo'] == 'Investimento']['Valor'].sum()
-    saldo_mensal = total_receitas - total_despesas
+    # CORREÇÃO DO CÁLCULO DO SALDO
+    saldo_periodo = total_receitas - total_despesas - total_investido
 
     st.subheader("Resumo Financeiro Total")
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Receitas", f"R$ {total_receitas:,.2f}")
     col2.metric("Despesas", f"R$ {total_despesas:,.2f}")
     col3.metric("Investimentos", f"R$ {total_investido:,.2f}")
-    col4.metric("Saldo (Receitas - Despesas)", f"R$ {saldo_mensal:,.2f}", delta=f"{saldo_mensal:,.2f}")
+    col4.metric("Saldo (Receitas - Despesas - Invest.)", f"R$ {saldo_periodo:,.2f}", delta=f"{saldo_periodo:,.2f}")
     
     st.divider()
 
@@ -686,7 +688,6 @@ def ui_controle_financeiro():
 
     with st.expander("📜 Histórico de Transações", expanded=True):
         if not df_trans.empty:
-            # Adiciona a coluna 'Excluir' para o data_editor
             df_para_editar = df_trans.copy()
             df_para_editar['Excluir'] = False
             
@@ -696,7 +697,6 @@ def ui_controle_financeiro():
                 "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
             }
 
-            # Usa o st.data_editor para permitir edições
             edited_df = st.data_editor(
                 df_para_editar[['Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição']], 
                 use_container_width=True,
@@ -706,17 +706,11 @@ def ui_controle_financeiro():
             )
             
             if st.button("Excluir Lançamentos Selecionados"):
-                # Lógica de exclusão
                 indices_para_excluir = edited_df[edited_df['Excluir']].index
                 st.session_state.transactions = st.session_state.transactions.drop(indices_para_excluir).reset_index(drop=True)
                 st.success("Lançamentos excluídos!")
                 st.rerun()
 
-            # Lógica de edição: st.data_editor já retorna o df editado.
-            # Precisamos comparar com o original para salvar as mudanças.
-            # O Streamlit trata isso reexecutando o script, então precisamos salvar o estado.
-            # A forma mais simples é atribuir o df editado (sem a coluna Excluir) de volta ao session_state.
-            # Removendo a coluna 'Excluir' antes de salvar
             edited_df_sem_excluir = edited_df.drop(columns=['Excluir'])
             st.session_state.transactions = edited_df_sem_excluir
 
