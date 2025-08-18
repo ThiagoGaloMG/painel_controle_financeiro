@@ -21,19 +21,20 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="📈")
 
-# Estilo CSS para um tema escuro e profissional, inspirado nas imagens
+# Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
 <style>
-    /* Paleta de Cores Profissional */
+    /* Paleta de Cores Neon Profissional */
     :root {
-        --primary-bg: #0E1117;
-        --secondary-bg: #161B22;
-        --widget-bg: #282828;
-        --primary-accent: #0072F5;
-        --secondary-accent: #17C964;
-        --text-color: #ECEDEE;
-        --secondary-text-color: #8A94A6;
-        --border-color: #30363D;
+        --primary-bg: #0A0A1A; /* Fundo carvão profundo, quase preto */
+        --secondary-bg: #1A1A2E; /* Fundo secundário azul/roxo escuro */
+        --widget-bg: #16213E; /* Fundo dos widgets */
+        --primary-accent: #00F6FF; /* Ciano neon vibrante */
+        --secondary-accent: #E94560; /* Vermelho/rosa neon para contraste */
+        --positive-accent: #00FF87; /* Verde neon */
+        --text-color: #E0E0E0; /* Cinza claro para texto, menos cansativo */
+        --header-color: #FFFFFF; /* Branco puro para títulos */
+        --border-color: #5372F0; /* Borda azul sutil */
     }
 
     body {
@@ -46,57 +47,79 @@ st.markdown("""
         padding-bottom: 2rem;
     }
     
-    /* Título com Gradiente */
+    /* Título com Gradiente Neon */
     h1 {
-        background: -webkit-linear-gradient(45deg, var(--primary-accent), var(--secondary-accent));
+        background: -webkit-linear-gradient(45deg, var(--primary-accent), var(--positive-accent));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 10px rgba(0, 246, 255, 0.3);
+    }
+    
+    h2, h3 {
+        color: var(--header-color);
     }
 
-    /* Abas */
+    /* Abas com Efeito Neon */
     .stTabs [data-baseweb="tab-list"] {
         gap: 24px;
     }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
-        white-space: pre-wrap;
-        background-color: var(--secondary-bg);
-        border-radius: 8px 8px 0px 0px;
-        border-bottom: 2px solid transparent;
+        background-color: transparent;
+        border-bottom: 2px solid var(--secondary-bg);
         transition: all 0.3s;
     }
     .stTabs [aria-selected="true"] {
-        background-color: var(--widget-bg);
+        color: var(--primary-accent);
         border-bottom: 2px solid var(--primary-accent);
+        box-shadow: 0 2px 15px -5px var(--primary-accent);
     }
 
-    /* Métricas */
+    /* Métricas com Borda Neon Sutil */
     .stMetric {
-        border: 1px solid var(--border-color);
+        border: 1px solid var(--secondary-bg);
         border-radius: 8px;
         padding: 20px;
-        background-color: var(--widget-bg);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        background-color: var(--secondary-bg);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    }
+    .stMetric > div:nth-child(2) { /* O valor da métrica */
+        color: var(--header-color);
     }
 
-    /* Botões */
+    /* Botões com Efeito Neon */
     .stButton > button {
         border-radius: 8px;
         border: 1px solid var(--primary-accent);
-        background-color: var(--primary-accent);
-        color: white;
-        transition: all 0.3s;
-    }
-    .stButton > button:hover {
         background-color: transparent;
         color: var(--primary-accent);
+        transition: all 0.3s ease-in-out;
+        box-shadow: 0 0 5px var(--primary-accent);
+    }
+    .stButton > button:hover {
+        background-color: var(--primary-accent);
+        color: var(--primary-bg);
+        box-shadow: 0 0 20px var(--primary-accent);
+    }
+    .stButton > button:active {
+        transform: scale(0.98);
     }
 
     /* Expanders */
     [data-testid="stExpander"] {
-        background-color: var(--widget-bg);
+        background-color: var(--secondary-bg);
         border: 1px solid var(--border-color);
         border-radius: 8px;
+    }
+    [data-testid="stExpander"] summary {
+        font-size: 1.1em;
+        font-weight: 600;
+        color: var(--header-color);
+    }
+
+    /* Barras de progresso */
+    [data-testid="stProgressBar"] > div {
+        background-image: linear-gradient(90deg, var(--primary-accent), var(--positive-accent));
     }
 </style>""", unsafe_allow_html=True)
 
