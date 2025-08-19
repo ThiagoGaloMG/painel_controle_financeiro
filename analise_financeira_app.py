@@ -1220,7 +1220,7 @@ def ui_valuation():
             resultados_completos = executar_analise_completa(ticker_cvm_map_df, demonstrativos, market_data, params_ranking, progress_bar)
             
             if resultados_completos:
-                df_final = pd.DataFrame(resultados_os.append(resultados)
+                df_final = pd.DataFrame(resultados_completos)
                 st.success(f"Análise completa! {len(df_final)} de {len(ticker_cvm_map_df)} empresas foram processadas com sucesso.")
                 exibir_rankings(df_final)
             else:
