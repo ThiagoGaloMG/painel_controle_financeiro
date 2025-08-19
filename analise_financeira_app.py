@@ -167,25 +167,25 @@ CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] = CONFIG["DIRETORIO_BASE"] / "CVM_EXTRACTED"
 
 # ==============================================================================
 # LÓGICA DE DADOS GERAL (CVM, MERCADO, ETC.)
-# # Mover esta seção para um arquivo 'data_loader.py' ou 'services/data_fetcher.py'
 # ==============================================================================
 
 @st.cache_data
 def setup_diretorios():
-    """Cria os diretórios locais para armazenar os dados da CVM."""
+    """Cria os diretórios locais para armazenar os dados da CVM (se permitido)."""
     try:
         CONFIG["DIRETORIO_DADOS_CVM"].mkdir(parents=True, exist_ok=True)
         CONFIG["DIRETORIO_DADOS_EXTRAIDOS"].mkdir(parents=True, exist_ok=True)
         return True
     except Exception as e:
-        st.error(f"Erro ao criar diretórios locais. Verifique as permissões. Erro: {e}")
+        # st.error(f"Erro ao criar diretórios locais. Verifique as permissões. Erro: {e}")
+        # A nova lógica não precisa de arquivos locais, então este erro pode ser suprimido
         return False
 
 @st.cache_data(show_spinner=False)
 def preparar_dados_cvm(anos_historico):
     """
     Baixa e processa os dados anuais da CVM para os demonstrativos financeiros,
-    agora com uma lógica mais robusta para arquivos ZIP.
+    agora lendo diretamente da memória para evitar problemas de permissão.
 
     Args:
         anos_historico (int): Número de anos de histórico a serem baixados.
@@ -199,23 +199,18 @@ def preparar_dados_cvm(anos_historico):
     
     with st.spinner(f"Verificando e baixando dados da CVM de {ano_inicial} a {ano_final-1}..."):
         
-        # Iterar sobre os anos para processar um ZIP por vez
         for ano in range(ano_inicial, ano_final):
             nome_zip = f'dfp_cia_aberta_{ano}.zip'
-            caminho_zip = CONFIG["DIRETORIO_DADOS_CVM"] / nome_zip
             url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
 
             try:
-                # Baixa o arquivo ZIP se ele não existir localmente
-                if not caminho_zip.exists():
-                    response = requests.get(url_zip, stream=True, timeout=60)
-                    response.raise_for_status()
-                    with open(caminho_zip, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                
-                # Abre o ZIP e processa os arquivos CSV necessários
-                with ZipFile(caminho_zip, 'r') as z:
+                # Baixa o arquivo ZIP para a memória
+                response = requests.get(url_zip, timeout=60)
+                response.raise_for_status()
+                zip_buffer = io.BytesIO(response.content)
+
+                # Abre o ZIP a partir da memória e processa os arquivos CSV necessários
+                with ZipFile(zip_buffer, 'r') as z:
                     for tipo in ['DRE', 'BPA', 'BPP', 'DFC_MI']:
                         nome_arquivo_csv = f'dfp_cia_aberta_{tipo}_con_{ano}.csv'
                         if nome_arquivo_csv in z.namelist():
@@ -226,12 +221,18 @@ def preparar_dados_cvm(anos_historico):
                                 if tipo.lower() not in demonstrativos_consolidados:
                                     demonstrativos_consolidados[tipo.lower()] = pd.DataFrame()
                                 demonstrativos_consolidados[tipo.lower()] = pd.concat([demonstrativos_consolidados[tipo.lower()], df_anual], ignore_index=True)
-                        
+                        else:
+                            st.warning(f"Arquivo {nome_arquivo_csv} não encontrado no zip do ano {ano}.")
+
+            except requests.exceptions.RequestException as e:
+                st.warning(f"Erro ao baixar o arquivo ZIP do ano {ano}. Erro: {e}")
+                continue
             except Exception as e:
-                st.warning(f"Não foi possível baixar ou extrair os dados do ano {ano}. Erro: {e}")
+                st.warning(f"Erro ao processar dados do ano {ano}. Erro: {e}")
                 continue
 
     return demonstrativos_consolidados
+
 
 @st.cache_data
 def carregar_mapeamento_ticker_cvm():
@@ -781,7 +782,6 @@ def ui_controle_financeiro():
 
 # ==============================================================================
 # ABA 2: VALUATION
-# # Mover esta seção para um arquivo 'pages/valuation.py'
 # ==============================================================================
 def calcular_beta(ticker, ibov_data, periodo_beta):
     """Calcula o Beta de uma ação em relação ao Ibovespa de forma robusta."""
@@ -1098,7 +1098,6 @@ def ui_valuation():
 
 # ==============================================================================
 # ABA 3: MODELO FLEURIET
-# # Mover esta seção para um arquivo 'pages/fleuriet.py'
 # ==============================================================================
 
 def reclassificar_contas_fleuriet(df_bpa, df_bpp, contas_cvm):
@@ -1242,4 +1241,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
