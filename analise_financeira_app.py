@@ -15,7 +15,7 @@ import pandas as pd
 import yfinance as yf
 import requests
 from zipfile import ZipFile
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 import warnings
 import numpy as np
@@ -23,6 +23,7 @@ import io
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
+from tenacity import retry, wait_exponential, stop_after_attempt
 
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
@@ -132,7 +133,7 @@ st.markdown("""
     }
 
     /* Barras de progresso */
-    > div {
+    [data-testid="stProgressBar"] > div {
         background-image: linear-gradient(90deg, var(--primary-accent), var(--positive-accent));
     }
 </style>""", unsafe_allow_html=True)
@@ -161,9 +162,8 @@ CONFIG = {
     "PERIODO_BETA_IBOV": "5y",
     "TAXA_CRESCIMENTO_PERPETUIDADE": 0.04
 }
-CONFIG = CONFIG / "CVM_DATA"
-CONFIG = CONFIG / "CVM_EXTRACTED"
-
+CONFIG["DIRETORIO_DADOS_CVM"] = CONFIG["DIRETORIO_BASE"] / "CVM_DATA"
+CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] = CONFIG["DIRETORIO_BASE"] / "CVM_EXTRACTED"
 
 # ==============================================================================
 # LÓGICA DE DADOS GERAL (CVM, MERCADO, ETC.)
@@ -174,11 +174,11 @@ CONFIG = CONFIG / "CVM_EXTRACTED"
 def setup_diretorios():
     """Cria os diretórios locais para armazenar os dados da CVM."""
     try:
-        CONFIG.mkdir(parents=True, exist_ok=True)
-        CONFIG.mkdir(parents=True, exist_ok=True)
+        CONFIG["DIRETORIO_DADOS_CVM"].mkdir(parents=True, exist_ok=True)
+        CONFIG["DIRETORIO_DADOS_EXTRAIDOS"].mkdir(parents=True, exist_ok=True)
         return True
-    except Exception:
-        st.error("Erro ao criar diretórios locais. Verifique as permissões.")
+    except Exception as e:
+        st.error(f"Erro ao criar diretórios locais. Verifique as permissões. Erro: {e}")
         return False
 
 @st.cache_data(show_spinner=False)
@@ -196,23 +196,23 @@ def preparar_dados_cvm(anos_historico):
     ano_inicial = ano_final - anos_historico
     with st.spinner(f"Verificando e baixando dados da CVM de {ano_inicial} a {ano_final-1}..."):
         demonstrativos_consolidados = {}
-        tipos_demonstrativos =
+        tipos_demonstrativos = ['DRE', 'BPA', 'BPP', 'DFC_MI']
         
         # Otimização: A CVM possui arquivos ITR e DFP. O código atual usa apenas DFP.
         # Para um histórico mais completo, seria ideal combinar ITR e DFP.
         # O código abaixo é uma implementação simplificada usando apenas DFP.
-
+        
         for tipo in tipos_demonstrativos:
-            lista_dfs_anuais =
+            lista_dfs_anuais = []
             for ano in range(ano_inicial, ano_final):
                 nome_arquivo_csv = f'dfp_cia_aberta_{tipo}_con_{ano}.csv'
-                caminho_arquivo = CONFIG / nome_arquivo_csv
+                caminho_arquivo = CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] / nome_arquivo_csv
                 
                 # Verificação se o arquivo já existe para evitar re-download
                 if not caminho_arquivo.exists():
                     nome_zip = f'dfp_cia_aberta_{ano}.zip'
-                    caminho_zip = CONFIG / nome_zip
-                    url_zip = f'{CONFIG}{nome_zip}'
+                    caminho_zip = CONFIG["DIRETORIO_DADOS_CVM"] / nome_zip
+                    url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
                     
                     try:
                         response = requests.get(url_zip, stream=True, timeout=60)
@@ -223,42 +223,34 @@ def preparar_dados_cvm(anos_historico):
                         
                         with ZipFile(caminho_zip, 'r') as z:
                             if nome_arquivo_csv in z.namelist():
-                                z.extract(nome_arquivo_csv, CONFIG)
+                                z.extract(nome_arquivo_csv, CONFIG["DIRETORIO_DADOS_EXTRAIDOS"])
                             else:
                                 continue
-                    except Exception:
+                    except Exception as e:
+                        st.warning(f"Não foi possível baixar ou extrair os dados do ano {ano}. Erro: {e}")
                         continue
                 
                 if caminho_arquivo.exists():
                     try:
                         df_anual = pd.read_csv(caminho_arquivo, sep=';', encoding='ISO-8859-1', low_memory=False)
                         lista_dfs_anuais.append(df_anual)
-                    except Exception:
+                    except Exception as e:
+                        st.error(f"Erro ao ler o arquivo {caminho_arquivo}. Erro: {e}")
                         continue
             
             if lista_dfs_anuais:
                 demonstrativos_consolidados[tipo.lower()] = pd.concat(lista_dfs_anuais, ignore_index=True)
                 
-    # Adicionando tratamento para dados com ambiguidade, conforme o TCC [2]
-    # O TCC menciona que em 2015 o valor de "Imobilizado" foi o mesmo que de "Intangível".
-    # O código atual lida com isso tratando as contas separadamente, mas um aviso
-    # ou tratamento específico pode ser adicionado se necessário para garantir a precisão.
-    
     return demonstrativos_consolidados
 
 @st.cache_data
 def carregar_mapeamento_ticker_cvm():
     """
-    Carrega o mapeamento de tickers e códigos CVM a partir de um arquivo CSV.
-    RECOMENDAÇÃO: Salve o conteúdo da planilha mapeamento_tickers.csv em um arquivo
-    local e ajuste o caminho abaixo.
+    Carrega o mapeamento de tickers e códigos CVM a partir de uma string embutida.
 
     Returns:
         pd.DataFrame: DataFrame com mapeamento de tickers.
     """
-    # A prática recomendada é usar um arquivo CSV externo.
-    # Exemplo: df = pd.read_csv('mapeamento_tickers.csv', sep=';', encoding='utf-8')
-    # O código abaixo mantém a funcionalidade original com a string embutida.
     mapeamento_csv_data = """CD_CVM;Ticker;Nome_Empresa
 25330;ALLD3;ALLIED TECNOLOGIA S.A.
 10456;ALPA4;ALPARGATAS S.A.
@@ -559,21 +551,17 @@ def carregar_mapeamento_ticker_cvm():
         df = pd.read_csv(io.StringIO(mapeamento_csv_data), sep=';', encoding='utf-8')
         df.columns = df.columns.str.strip()
         df.rename(columns={'Ticker': 'TICKER', 'CD_CVM': 'CD_CVM'}, inplace=True, errors='ignore')
-        df = df.dropna(subset=)
-        df = pd.to_numeric(df, errors='coerce').astype('Int64')
-        df = df.astype(str).str.strip().str.upper()
+        df = df.dropna(subset=['TICKER', 'CD_CVM'])
+        df['CD_CVM'] = pd.to_numeric(df['CD_CVM'], errors='coerce').astype('Int64')
+        df['TICKER'] = df['TICKER'].astype(str).str.strip().str.upper()
+        df = df.dropna(subset=['CD_CVM']).drop_duplicates(subset=['TICKER'])
         
-        # O TCC menciona a análise de "ações ordinárias".[2]
-        # O código original descarta tickers duplicados, o que pode remover
-        # classes de ações diferentes (ex: BBDC3 vs BBDC4).
-        # A nova abordagem mantém todos os tickers, permitindo ao usuário
-        # selecionar a classe de ação desejada.
-        df = df.dropna(subset=)
         return df
-    except Exception:
-        st.error("Falha ao carregar o mapeamento de tickers. Verifique o arquivo `mapeamento_tickers.csv`.")
+    except Exception as e:
+        st.error(f"Falha ao carregar o mapeamento de tickers. Erro: {e}")
         return pd.DataFrame()
 
+@retry(wait=wait_exponential(multiplier=1, min=4, max=10), stop=stop_after_attempt(3))
 def consulta_bc(codigo_bcb):
     """Consulta a API do Banco Central para obter dados como a taxa Selic."""
     try:
@@ -581,21 +569,27 @@ def consulta_bc(codigo_bcb):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        return float(data['valor']) / 100.0 if data else None
-    except Exception:
-        return None
+        return float(data[0]['valor']) / 100.0 if data else None
+    except Exception as e:
+        raise Exception(f"Erro ao consultar a API do Banco Central. Código: {codigo_bcb}. Erro: {e}")
 
 @st.cache_data(show_spinner=False)
 def obter_dados_mercado(periodo_ibov):
     """Busca dados de mercado como Selic, Ibovespa e prêmio de risco."""
     with st.spinner("Buscando dados de mercado (Selic, Ibovespa)..."):
-        selic_anual = consulta_bc(1178)
+        try:
+            selic_anual = consulta_bc(1178)
+        except Exception:
+            selic_anual = None
+        
         risk_free_rate = selic_anual if selic_anual is not None else 0.105
+        
         ibov = yf.download('^BVSP', period=periodo_ibov, progress=False)
         if not ibov.empty and 'Adj Close' in ibov.columns:
             retorno_anual_mercado = ((1 + ibov['Adj Close'].pct_change().mean()) ** 252) - 1
         else:
             retorno_anual_mercado = 0.12
+            
         premio_risco_mercado = retorno_anual_mercado - risk_free_rate
     return risk_free_rate, retorno_anual_mercado, premio_risco_mercado, ibov
 
@@ -604,15 +598,15 @@ def obter_historico_metrica(df_empresa, codigo_conta):
     Extrai o histórico anual de uma conta contábil específica da CVM.
     Filtra pela 'ÚLTIMO' ordem de exercício para pegar o dado mais recente do ano fiscal.
     """
-    metric_df = df_empresa == codigo_conta) & (df_empresa == 'ÚLTIMO')]
+    metric_df = df_empresa[(df_empresa['CD_CONTA'] == codigo_conta) & (df_empresa['ORDEM_EXERC'] == 'ÚLTIMO')]
     if metric_df.empty:
         return pd.Series(dtype=float)
     
     # Tratamento para garantir que a data de referência é única por ano
-    metric_df = pd.to_datetime(metric_df)
-    metric_df = metric_df.sort_values('DT_REFER').groupby(metric_df.dt.year).last()
+    metric_df['DT_REFER'] = pd.to_datetime(metric_df['DT_REFER'])
+    metric_df = metric_df.sort_values('DT_REFER').groupby(metric_df['DT_REFER'].dt.year).last()
     
-    return metric_df.sort_index()
+    return metric_df['VL_CONTA'].sort_index()
 
 
 # ==============================================================================
@@ -623,9 +617,9 @@ def obter_historico_metrica(df_empresa, codigo_conta):
 def inicializar_session_state():
     """Inicializa o estado da sessão para simular um banco de dados."""
     if 'transactions' not in st.session_state:
-        st.session_state.transactions = pd.DataFrame(columns=)
+        st.session_state.transactions = pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'])
     if 'categories' not in st.session_state:
-        st.session_state.categories = {'Receita':, 'Despesa':, 'Investimento':}
+        st.session_state.categories = {'Receita': ['Salário', 'Freelance'], 'Despesa': ['Moradia', 'Alimentação', 'Transporte'], 'Investimento': ['Ações BR', 'FIIs', 'Ações INT', 'Caixa']}
     if 'goals' not in st.session_state:
         st.session_state.goals = {
             'Reserva de Emergência': {'meta': 10000.0, 'atual': 0.0},
@@ -641,7 +635,7 @@ def ui_controle_financeiro():
         with st.expander("➕ Novo Lançamento", expanded=True):
             with st.form("new_transaction_form", clear_on_submit=True):
                 data = st.date_input("Data", datetime.now())
-                tipo = st.selectbox("Tipo",)
+                tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
                 
                 categoria_final = None
                 sub_arca = None
@@ -675,10 +669,10 @@ def ui_controle_financeiro():
                 submitted = st.form_submit_button("Adicionar Lançamento")
 
                 if submitted and categoria_final:
-                    if tipo!= "Investimento" and categoria_final not in st.session_state.categories[tipo]:
+                    if tipo != "Investimento" and categoria_final not in st.session_state.categories[tipo]:
                         st.session_state.categories[tipo].append(categoria_final)
 
-                    nova_transacao = pd.DataFrame()
+                    nova_transacao = pd.DataFrame([{'Data': data, 'Tipo': tipo, 'Categoria': categoria_final, 'Subcategoria ARCA': sub_arca, 'Valor': valor, 'Descrição': descricao}])
                     st.session_state.transactions = pd.concat([st.session_state.transactions, nova_transacao], ignore_index=True).reset_index(drop=True)
                     st.success("Lançamento adicionado!")
                     st.rerun()
@@ -695,11 +689,11 @@ def ui_controle_financeiro():
 
     df_trans = st.session_state.transactions.copy()
     if not df_trans.empty:
-        df_trans = pd.to_datetime(df_trans)
+        df_trans['Data'] = pd.to_datetime(df_trans['Data'])
     
-    total_receitas = df_trans == 'Receita']['Valor'].sum()
-    total_despesas = df_trans == 'Despesa']['Valor'].sum()
-    total_investido = df_trans == 'Investimento']['Valor'].sum()
+    total_receitas = df_trans[df_trans['Tipo'] == 'Receita']['Valor'].sum()
+    total_despesas = df_trans[df_trans['Tipo'] == 'Despesa']['Valor'].sum()
+    total_investido = df_trans[df_trans['Tipo'] == 'Investimento']['Valor'].sum()
     saldo_periodo = total_receitas - total_despesas - total_investido
 
     st.subheader("Resumo Financeiro Total")
@@ -711,16 +705,16 @@ def ui_controle_financeiro():
     
     st.divider()
 
-    invest_produtivos = df_trans == 'Investimento') & (df_trans.isin())]['Valor'].sum()
-    caixa = df_trans == 'Investimento') & (df_trans == 'Caixa')]['Valor'].sum()
+    invest_produtivos = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'].isin(['Ações BR', 'FIIs', 'Ações INT']))]['Valor'].sum()
+    caixa = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'] == 'Caixa')]['Valor'].sum()
     
     st.session_state.goals['Liberdade Financeira']['atual'] = invest_produtivos
-    st.session_state.goals['atual'] = caixa
+    st.session_state.goals['Reserva de Emergência']['atual'] = caixa
 
     col1, col2, col3 = st.columns(3)
     with col1:
         st.subheader("Distribuição ARCA")
-        df_arca = df_trans == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
+        df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
         if not df_arca.empty:
             fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos", hole=.3, template="plotly_dark")
             fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
@@ -731,8 +725,8 @@ def ui_controle_financeiro():
 
     with col2:
         st.subheader("Reserva de Emergência")
-        meta = st.session_state.goals['meta']
-        atual = st.session_state.goals['atual']
+        meta = st.session_state.goals['Reserva de Emergência']['meta']
+        atual = st.session_state.goals['Reserva de Emergência']['atual']
         progresso = (atual / meta) if meta > 0 else 0
         st.metric("Valor em Caixa", f"R$ {atual:,.2f}")
         st.progress(min(progresso, 1.0), text=f"{progresso:.1%} da meta de R$ {meta:,.2f}")
@@ -749,10 +743,10 @@ def ui_controle_financeiro():
 
     st.subheader("Análise Histórica")
     if not df_trans.empty:
-        df_monthly = df_trans.set_index('Data').groupby()['Valor'].sum().unstack(fill_value=0)
+        df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
         col1, col2 = st.columns(2)
         with col1:
-            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y= if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark")
+            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark")
             fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
@@ -775,7 +769,7 @@ def ui_controle_financeiro():
             }
 
             edited_df = st.data_editor(
-                df_para_editar], 
+                df_para_editar[['Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição']], 
                 use_container_width=True,
                 column_config=colunas_config,
                 hide_index=True,
@@ -813,39 +807,23 @@ def calcular_beta(ticker, ibov_data, periodo_beta):
     if len(retornos_mensais) < 2:
         return 1.0
 
-    covariancia = retornos_mensais.cov().iloc
+    covariancia = retornos_mensais.cov().iloc[0, 1]
     variancia_mercado = retornos_mensais.iloc[:, 1].var()
     
-    return covariancia / variancia_mercado if variancia_mercado!= 0 else 1.0
+    return covariancia / variancia_mercado if variancia_mercado != 0 else 1.0
 
 def calcular_beta_hamada(ticker, ibov_data, periodo_beta, imposto, divida_total, market_cap):
     """
     Calcula o Beta alavancado ajustado pelo modelo de Hamada.
-    
-    O TCC menciona o uso do modelo de Hamada, que primeiro 'desalavanca' um beta
-    de mercado para encontrar o beta do ativo (risco do negócio) e depois o
-    'realavanca' para a estrutura de capital da empresa em análise.
-    
-    Fórmula de desalavancagem (Unlevered Beta):
-    βU = βL /
-    
-    Fórmula de realavancagem (Levered Beta):
-    βL = βU *
-    
-    Aqui, a função simplifica o processo calculando um beta base (levered)
-    e ajustando-o, já que o foco é o ajuste da alavancagem.
     """
     beta_alavancado_mercado = calcular_beta(ticker, ibov_data, periodo_beta)
     
-    # Se a empresa não tem capital próprio ou dívida, o cálculo não é aplicável
-    if (market_cap + divida_total) == 0:
+    if (market_cap + divida_total) == 0 or market_cap == 0:
         return beta_alavancado_mercado
     
-    # Desalavanca o beta para encontrar o beta do ativo (risco do negócio)
-    divida_patrimonio = divida_total / market_cap if market_cap > 0 else 0
+    divida_patrimonio = divida_total / market_cap
     beta_desalavancado = beta_alavancado_mercado / (1 + (1 - imposto) * divida_patrimonio)
     
-    # Realavanca o beta para a estrutura de capital da empresa em análise
     beta_realavancado = beta_desalavancado * (1 + (1 - imposto) * divida_patrimonio)
     
     return beta_realavancado
@@ -867,10 +845,10 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     (risk_free_rate, _, premio_risco_mercado, ibov_data) = market_data
     dre, bpa, bpp, dfc = demonstrativos['dre'], demonstrativos['bpa'], demonstrativos['bpp'], demonstrativos['dfc_mi']
     
-    empresa_dre = dre == codigo_cvm]
-    empresa_bpa = bpa == codigo_cvm]
-    empresa_bpp = bpp == codigo_cvm]
-    empresa_dfc = dfc == codigo_cvm]
+    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm]
+    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm]
+    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm]
+    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm]
     
     if any(df.empty for df in [empresa_dre, empresa_bpa, empresa_bpp, empresa_dfc]):
         return None, "Dados CVM históricos incompletos ou inexistentes."
@@ -888,30 +866,30 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     except Exception:
         return None, "Falha ao buscar dados no Yahoo Finance."
         
-    C = CONFIG
+    C = CONFIG['CONTAS_CVM']
     
     # Extração de dados da CVM
-    hist_ebit = obter_historico_metrica(empresa_dre, C)
-    hist_impostos = obter_historico_metrica(empresa_dre, C)
-    hist_lai = obter_historico_metrica(empresa_dre, C)
+    hist_ebit = obter_historico_metrica(empresa_dre, C['EBIT'])
+    hist_impostos = obter_historico_metrica(empresa_dre, C['IMPOSTO_DE_RENDA_CSLL'])
+    hist_lai = obter_historico_metrica(empresa_dre, C['LUCRO_ANTES_IMPOSTOS'])
 
     if hist_lai.sum() == 0 or hist_ebit.empty:
         return None, "Dados de Lucro/EBIT insuficientes para calcular a alíquota de imposto."
         
     aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum())
     hist_nopat = hist_ebit * (1 - aliquota_efetiva)
-    hist_dep_amort = obter_historico_metrica(empresa_dfc, C)
+    hist_dep_amort = obter_historico_metrica(empresa_dfc, C['DEPRECIACAO_AMORTIZACAO'])
     hist_fco = hist_nopat.add(hist_dep_amort, fill_value=0)
     
     try:
-        contas_a_receber = obter_historico_metrica(empresa_bpa, C).iloc[-1]
-        estoques = obter_historico_metrica(empresa_bpa, C).iloc[-1]
-        fornecedores = obter_historico_metrica(empresa_bpp, C).iloc[-1]
-        ativo_imobilizado = obter_historico_metrica(empresa_bpa, C).iloc[-1]
-        ativo_intangivel = obter_historico_metrica(empresa_bpa, C).iloc[-1]
-        divida_cp = obter_historico_metrica(empresa_bpp, C).iloc[-1]
-        divida_lp = obter_historico_metrica(empresa_bpp, C).iloc[-1]
-        desp_financeira = abs(obter_historico_metrica(empresa_dre, C).iloc[-1])
+        contas_a_receber = obter_historico_metrica(empresa_bpa, C['CONTAS_A_RECEBER']).iloc[-1]
+        estoques = obter_historico_metrica(empresa_bpa, C['ESTOQUES']).iloc[-1]
+        fornecedores = obter_historico_metrica(empresa_bpp, C['FORNECEDORES']).iloc[-1]
+        ativo_imobilizado = obter_historico_metrica(empresa_bpa, C['ATIVO_IMOBILIZADO']).iloc[-1]
+        ativo_intangivel = obter_historico_metrica(empresa_bpa, C['ATIVO_INTANGIVEL']).iloc[-1]
+        divida_cp = obter_historico_metrica(empresa_bpp, C['DIVIDA_CURTO_PRAZO']).iloc[-1]
+        divida_lp = obter_historico_metrica(empresa_bpp, C['DIVIDA_LONGO_PRAZO']).iloc[-1]
+        desp_financeira = abs(obter_historico_metrica(empresa_dre, C['DESPESAS_FINANCEIRAS']).iloc[-1])
     except IndexError:
         return None, "Dados de balanço patrimonial ausentes ou incompletos."
 
@@ -945,7 +923,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     ev_mercado = market_cap + divida_total
     wacc = ((market_cap / ev_mercado) * ke) + ((divida_total / ev_mercado) * kd_liquido) if ev_mercado > 0 else ke
     
-    # Cálculo do EVA e EFV conforme TCC [2]
+    # Cálculo do EVA e EFV conforme TCC
     eva = (roic - wacc) * capital_empregado
     riqueza_atual = (eva / wacc) if wacc > 0 else 0.0
     riqueza_futura_esperada = ev_mercado - capital_empregado
@@ -967,11 +945,11 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
 
 def executar_analise_completa(ticker_map, demonstrativos, market_data, params, progress_bar):
     """Executa a análise de valuation para todas as empresas da lista."""
-    todos_os_resultados =
+    todos_os_resultados = []
     total_empresas = len(ticker_map)
     for i, (index, row) in enumerate(ticker_map.iterrows()):
-        ticker = row
-        codigo_cvm = int(row)
+        ticker = row['TICKER']
+        codigo_cvm = int(row['CD_CVM'])
         ticker_sa = f"{ticker}.SA"
         progress = (i + 1) / total_empresas
         progress_bar.progress(progress, text=f"Analisando {i+1}/{total_empresas}: {ticker}")
@@ -979,7 +957,8 @@ def executar_analise_completa(ticker_map, demonstrativos, market_data, params, p
             resultados, _ = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params)
             if resultados:
                 todos_os_resultados.append(resultados)
-        except Exception:
+        except Exception as e:
+            st.error(f"Erro ao analisar {ticker}. Erro: {e}")
             continue
     progress_bar.empty()
     return todos_os_resultados
@@ -997,13 +976,13 @@ def exibir_rankings(df_final):
         return
         
     rankings = {
-        "MARGEM_SEGURANCA": ("Ranking por Margem de Segurança", 'Margem Segurança (%)',),
-        "ROIC": ("Ranking por ROIC", 'ROIC (%)',),
-        "EVA": ("Ranking por EVA", 'EVA (R$)',),
-        "EFV": ("Ranking por EFV", 'EFV (R$)',)
+        "MARGEM_SEGURANCA": ("Ranking por Margem de Segurança", 'Margem Segurança (%)', ['Ticker', 'Empresa', 'Preço Atual (R$)', 'Preço Justo (R$)', 'Margem Segurança (%)']),
+        "ROIC": ("Ranking por ROIC", 'ROIC (%)', ['Ticker', 'Empresa', 'ROIC (%)', 'Spread (ROIC-WACC %)']),
+        "EVA": ("Ranking por EVA", 'EVA (R$)', ['Ticker', 'Empresa', 'EVA (R$)']),
+        "EFV": ("Ranking por EFV", 'EFV (R$)', ['Ticker', 'Empresa', 'EFV (R$)'])
     }
     
-    tab_names = [config for config in rankings.values()]
+    tab_names = [config[0] for config in rankings.values()]
     tabs = st.tabs(tab_names)
     
     for i, (nome_ranking, (titulo, coluna_sort, colunas_view)) in enumerate(rankings.items()):
@@ -1022,7 +1001,7 @@ def exibir_rankings(df_final):
 def ui_valuation():
     """Renderiza a interface completa da aba de Valuation."""
     st.header("Análise de Valuation e Scanner de Mercado")
-    tab_individual, tab_ranking = st.tabs()
+    tab_individual, tab_ranking = st.tabs(["Análise de Ativo Individual", "🔍 Scanner de Mercado (Ranking)"])
     
     ticker_cvm_map_df = carregar_mapeamento_ticker_cvm()
     if ticker_cvm_map_df.empty:
@@ -1030,9 +1009,9 @@ def ui_valuation():
     
     with tab_individual:
         with st.form(key='individual_analysis_form'):
-            col1, col2 = st.columns([1, 2])
+            col1, col2 = st.columns([3, 1])
             with col1:
-                lista_tickers = sorted(ticker_cvm_map_df.unique())
+                lista_tickers = sorted(ticker_cvm_map_df['TICKER'].unique())
                 ticker_selecionado = st.selectbox("Selecione o Ticker da Empresa", options=lista_tickers, index=lista_tickers.index('PETR4'))
             with col2:
                 analisar_btn = st.form_submit_button("Analisar Empresa", type="primary", use_container_width=True)
@@ -1040,44 +1019,38 @@ def ui_valuation():
         with st.expander("Opções Avançadas de Valuation", expanded=False):
             col_params_1, col_params_2, col_params_3 = st.columns(3)
             with col_params_1:
-                p_taxa_cresc = st.slider("Taxa de Crescimento na Perpetuidade (%)", 0.0, 10.0, CONFIG * 100, 0.5) / 100
+                p_taxa_cresc = st.slider("Taxa de Crescimento na Perpetuidade (%)", 0.0, 10.0, CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"] * 100, 0.5) / 100
             with col_params_2:
-                p_media_anos = st.number_input("Anos para Média de NOPAT/FCO", 1, CONFIG, CONFIG)
+                p_media_anos = st.number_input("Anos para Média de NOPAT/FCO", 1, CONFIG["HISTORICO_ANOS_CVM"], CONFIG["MEDIA_ANOS_CALCULO"])
             with col_params_3:
                 p_periodo_beta = st.selectbox("Período para Cálculo do Beta", options=["1y", "2y", "5y", "10y"], index=2, key="beta_individual")
-
-        # Inclusão da análise de sensibilidade como uma melhoria
-        with st.expander("Análise de Sensibilidade (Novidade)", expanded=False):
-            sens_taxa_cresc = st.slider("Variação da Taxa de Crescimento (%)", -2.0, 2.0, 0.0, 0.1) / 100
-            sens_aliquota = st.slider("Variação da Alíquota de Imposto (%)", -5.0, 5.0, 0.0, 0.5) / 100
         
         if analisar_btn:
-            demonstrativos = preparar_dados_cvm(CONFIG)
+            demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
             market_data = obter_dados_mercado(p_periodo_beta)
             ticker_sa = f"{ticker_selecionado}.SA"
-            codigo_cvm_info = ticker_cvm_map_df == ticker_selecionado]
+            codigo_cvm_info = ticker_cvm_map_df[ticker_cvm_map_df['TICKER'] == ticker_selecionado]
             
             if codigo_cvm_info.empty:
                 st.error(f"Não foi possível encontrar o código CVM para o ticker {ticker_selecionado}.")
                 st.stop()
                 
-            codigo_cvm = int(codigo_cvm_info.iloc)
+            codigo_cvm = int(codigo_cvm_info.iloc[0]['CD_CVM'])
             
             params_analise = {
-                'taxa_crescimento_perpetuidade': p_taxa_cresc + sens_taxa_cresc,
+                'taxa_crescimento_perpetuidade': p_taxa_cresc,
                 'media_anos_calculo': p_media_anos,
                 'periodo_beta_ibov': p_periodo_beta,
-                'aliquota_imposto_ajuste': 1 + sens_aliquota # O ajuste será feito dentro da função
             }
 
             with st.spinner(f"Analisando {ticker_selecionado}..."):
                 resultados, status_msg = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params_analise)
                 
             if resultados:
-                st.success(f"Análise para **{resultados['Empresa']} ({resultados})** concluída!")
+                st.success(f"Análise para **{resultados['Empresa']} ({resultados['Ticker']})** concluída!")
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Preço Atual", f"R$ {resultados:.2f}"); col2.metric("Preço Justo (DCF)", f"R$ {resultados:.2f}")
-                ms_delta = resultados; col3.metric("Margem de Segurança", f"{ms_delta:.2f}%", delta=f"{ms_delta:.2f}%" if not pd.isna(ms_delta) else None)
+                col1.metric("Preço Atual", f"R$ {resultados['Preço Atual (R$)']:.2f}"); col2.metric("Preço Justo (DCF)", f"R$ {resultados['Preço Justo (R$)']:.2f}")
+                ms_delta = resultados['Margem Segurança (%)']; col3.metric("Margem de Segurança", f"{ms_delta:.2f}%", delta=f"{ms_delta:.2f}%" if not pd.isna(ms_delta) else None)
                 st.divider()
                 
                 # Gráfico interativo de NOPAT e FCO
@@ -1087,7 +1060,7 @@ def ui_valuation():
                 }).reset_index().rename(columns={'index': 'Ano'})
                 
                 fig_nopat_fco = go.Figure()
-                fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco, name='NOPAT', marker_color='#00F6FF'))
+                fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco['NOPAT'], name='NOPAT', marker_color='#00F6FF'))
                 fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco['FCO'], name='FCO', marker_color='#E94560'))
                 fig_nopat_fco.update_layout(title='Histórico de NOPAT e FCO', barmode='group', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
                 st.plotly_chart(fig_nopat_fco, use_container_width=True)
@@ -1101,8 +1074,8 @@ def ui_valuation():
                 }).reset_index().rename(columns={'index': 'Ano'})
                 
                 fig_roic_wacc = go.Figure()
-                fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc, mode='lines+markers', name='ROIC (%)', line=dict(color='#00FF87', width=3)))
-                fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc, mode='lines+markers', name='WACC (%)', line=dict(color='#E94560', width=3)))
+                fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc['ROIC'], mode='lines+markers', name='ROIC (%)', line=dict(color='#00FF87', width=3)))
+                fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc['WACC'], mode='lines+markers', name='WACC (%)', line=dict(color='#E94560', width=3)))
                 fig_roic_wacc.update_layout(title='ROIC vs WACC (Indicadores de Criação de Valor)', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
                 st.plotly_chart(fig_roic_wacc, use_container_width=True)
                 
@@ -1115,8 +1088,8 @@ def ui_valuation():
     with tab_ranking:
         st.info("Esta análise processa todas as empresas da lista, o que pode levar vários minutos.")
         if st.button("🚀 Iniciar Análise Completa e Gerar Rankings", type="primary", use_container_width=True):
-            params_ranking = {'taxa_crescimento_perpetuidade': CONFIG, 'media_anos_calculo': CONFIG, 'periodo_beta_ibov': CONFIG}
-            demonstrativos = preparar_dados_cvm(CONFIG)
+            params_ranking = {'taxa_crescimento_perpetuidade': CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"], 'media_anos_calculo': CONFIG["MEDIA_ANOS_CALCULO"], 'periodo_beta_ibov': CONFIG["PERIODO_BETA_IBOV"]}
+            demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
             market_data = obter_dados_mercado(params_ranking['periodo_beta_ibov'])
             progress_bar = st.progress(0, text="Iniciando análise em lote...")
             resultados_completos = executar_analise_completa(ticker_cvm_map_df, demonstrativos, market_data, params_ranking, progress_bar)
@@ -1135,19 +1108,19 @@ def ui_valuation():
 
 def reclassificar_contas_fleuriet(df_bpa, df_bpp, contas_cvm):
     """Reclassifica contas para o modelo Fleuriet a partir de DFs da CVM."""
-    aco = obter_historico_metrica(df_bpa, contas_cvm).add(obter_historico_metrica(df_bpa, contas_cvm), fill_value=0)
-    pco = obter_historico_metrica(df_bpp, contas_cvm)
-    ap = obter_historico_metrica(df_bpa, contas_cvm)
-    pl = obter_historico_metrica(df_bpp, contas_cvm)
-    pnc = obter_historico_metrica(df_bpp, contas_cvm)
+    aco = obter_historico_metrica(df_bpa, contas_cvm['ESTOQUES']).add(obter_historico_metrica(df_bpa, contas_cvm['CONTAS_A_RECEBER']), fill_value=0)
+    pco = obter_historico_metrica(df_bpp, contas_cvm['FORNECEDORES'])
+    ap = obter_historico_metrica(df_bpa, contas_cvm['ATIVO_NAO_CIRCULANTE'])
+    pl = obter_historico_metrica(df_bpp, contas_cvm['PATRIMONIO_LIQUIDO'])
+    pnc = obter_historico_metrica(df_bpp, contas_cvm['PASSIVO_NAO_CIRCULANTE'])
     return aco, pco, ap, pl, pnc
 
 def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
     """Processa a análise de saúde financeira pelos modelos Fleuriet e Z-Score de Prado."""
-    C = CONFIG
-    bpa = demonstrativos['bpa'][demonstrativos['bpa'] == codigo_cvm]
-    bpp = demonstrativos['bpp'][demonstrativos['bpp'] == codigo_cvm]
-    dre = demonstrativos['dre'][demonstrativos['dre'] == codigo_cvm]
+    C = CONFIG['CONTAS_CVM']
+    bpa = demonstrativos['bpa'][demonstrativos['bpa']['CD_CVM'] == codigo_cvm]
+    bpp = demonstrativos['bpp'][demonstrativos['bpp']['CD_CVM'] == codigo_cvm]
+    dre = demonstrativos['dre'][demonstrativos['dre']['CD_CVM'] == codigo_cvm]
     
     if any(df.empty for df in [bpa, bpp, dre]):
         return None
@@ -1170,14 +1143,14 @@ def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
             efeito_tesoura = True
             
     try:
-        # Cálculo do Z-Score de Prado conforme o TCC [2]
+        # Cálculo do Z-Score de Prado conforme o TCC
         info = yf.Ticker(ticker_sa).info
         market_cap = info.get('marketCap', 0)
-        ativo_total = obter_historico_metrica(bpa, C).iloc[-1]
-        passivo_total = obter_historico_metrica(bpp, C).iloc[-1]
-        lucro_retido = pl.iloc[-1] - pl.iloc
-        ebit = obter_historico_metrica(dre, C).iloc[-1]
-        vendas = obter_historico_metrica(dre, C).iloc[-1]
+        ativo_total = obter_historico_metrica(bpa, C['ATIVO_TOTAL']).iloc[-1]
+        passivo_total = obter_historico_metrica(bpp, C['PASSIVO_TOTAL']).iloc[-1]
+        lucro_retido = pl.iloc[-1] - pl.iloc[0]
+        ebit = obter_historico_metrica(dre, C['EBIT']).iloc[-1]
+        vendas = obter_historico_metrica(dre, C['RECEITA_LIQUIDA']).iloc[-1]
         
         X1 = cdg.iloc[-1] / ativo_total
         X2 = lucro_retido / ativo_total
@@ -1185,7 +1158,7 @@ def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
         X4 = market_cap / passivo_total if passivo_total > 0 else 0
         X5 = vendas / ativo_total
         
-        # Coeficientes específicos do Z-Score de Prado conforme o TCC [2]
+        # Coeficientes específicos do Z-Score de Prado conforme o TCC
         z_score = 0.038*X1 + 1.253*X2 + 2.331*X3 + 0.511*X4 + 0.824*X5
         
         if z_score < 1.81:
@@ -1207,15 +1180,15 @@ def ui_modelo_fleuriet():
     
     if st.button("🚀 Iniciar Análise Fleuriet Completa", type="primary", use_container_width=True):
         ticker_cvm_map_df = carregar_mapeamento_ticker_cvm()
-        demonstrativos = preparar_dados_cvm(CONFIG)
-        resultados_fleuriet =
+        demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
+        resultados_fleuriet = []
         progress_bar = st.progress(0, text="Iniciando análise Fleuriet...")
         total_empresas = len(ticker_cvm_map_df)
         
         for i, (index, row) in enumerate(ticker_cvm_map_df.iterrows()):
-            ticker = row
+            ticker = row['TICKER']
             progress_bar.progress((i + 1) / total_empresas, text=f"Analisando {i+1}/{total_empresas}: {ticker}")
-            resultado = processar_analise_fleuriet(f"{ticker}.SA", int(row), demonstrativos)
+            resultado = processar_analise_fleuriet(f"{ticker}.SA", int(row['CD_CVM']), demonstrativos)
             if resultado:
                 resultados_fleuriet.append(resultado)
                 
@@ -1226,9 +1199,9 @@ def ui_modelo_fleuriet():
             st.success(f"Análise Fleuriet concluída para {len(df_fleuriet)} empresas.")
             
             ncg_medio = df_fleuriet['NCG'].mean()
-            tesoura_count = df_fleuriet.sum()
-            risco_count = len(df_fleuriet == "Risco Elevado"])
-            zscore_medio = df_fleuriet.mean()
+            tesoura_count = df_fleuriet['Efeito Tesoura'].sum()
+            risco_count = len(df_fleuriet[df_fleuriet['Classificação Risco'] == "Risco Elevado"])
+            zscore_medio = df_fleuriet['Z-Score'].mean()
             
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("NCG Média", f"R$ {ncg_medio/1e6:.1f} M")
