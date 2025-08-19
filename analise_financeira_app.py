@@ -602,7 +602,6 @@ def obter_historico_metrica(df_empresa, codigo_conta):
 
 # ==============================================================================
 # ABA 1: CONTROLE FINANCEIRO
-# # Mover esta seção para um arquivo 'pages/controle_financeiro.py'
 # ==============================================================================
 
 def inicializar_session_state():
@@ -621,6 +620,45 @@ def ui_controle_financeiro():
     """Renderiza a interface completa da aba de Controle Financeiro."""
     st.header("Dashboard de Controle Financeiro Pessoal")
     
+    col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
+
+    # Adiciona filtros de data e tipo
+    data_inicio = col_filter1.date_input("Data de Início", value=datetime.now() - pd.Timedelta(days=365))
+    data_fim = col_filter2.date_input("Data de Fim", value=datetime.now())
+    tipo_filtro = col_filter3.selectbox("Filtrar por Tipo", ["Todos", "Receita", "Despesa", "Investimento"])
+
+    st.divider()
+
+    df_trans = st.session_state.transactions.copy()
+    if not df_trans.empty:
+        df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+        
+        # Aplica os filtros de data e tipo
+        df_filtrado = df_trans[(df_trans['Data'].dt.date >= data_inicio) & (df_trans['Data'].dt.date <= data_fim)]
+        if tipo_filtro != "Todos":
+            df_filtrado = df_filtrado[df_filtrado['Tipo'] == tipo_filtro]
+    else:
+        df_filtrado = pd.DataFrame()
+
+    # Cards de resumo
+    if not df_filtrado.empty:
+        total_receitas = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
+        total_despesas = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
+        total_investido = df_filtrado[df_filtrado['Tipo'] == 'Investimento']['Valor'].sum()
+        saldo_periodo = total_receitas - total_despesas - total_investido
+    else:
+        total_receitas, total_despesas, total_investido, saldo_periodo = 0, 0, 0, 0
+
+    st.subheader("Resumo do Período")
+    col_card1, col_card2, col_card3, col_card4 = st.columns(4)
+    col_card1.metric("Receitas", f"R$ {total_receitas:,.2f}")
+    col_card2.metric("Despesas", f"R$ {total_despesas:,.2f}")
+    col_card3.metric("Investimentos", f"R$ {total_investido:,.2f}")
+    col_card4.metric("Saldo", f"R$ {saldo_periodo:,.2f}")
+    
+    st.divider()
+
+    # Lógica de input de dados (permanece a mesma)
     col1, col2 = st.columns(2)
     with col1:
         with st.expander("➕ Novo Lançamento", expanded=True):
@@ -682,20 +720,6 @@ def ui_controle_financeiro():
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
     
-    total_receitas = df_trans[df_trans['Tipo'] == 'Receita']['Valor'].sum()
-    total_despesas = df_trans[df_trans['Tipo'] == 'Despesa']['Valor'].sum()
-    total_investido = df_trans[df_trans['Tipo'] == 'Investimento']['Valor'].sum()
-    saldo_periodo = total_receitas - total_despesas - total_investido
-
-    st.subheader("Resumo Financeiro Total")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Receitas", f"R$ {total_receitas:,.2f}")
-    col2.metric("Despesas", f"R$ {total_despesas:,.2f}")
-    col3.metric("Investimentos", f"R$ {total_investido:,.2f}")
-    col4.metric("Saldo (Receitas - Despesas - Invest.)", f"R$ {saldo_periodo:,.2f}", delta=f"{saldo_periodo:,.2f}")
-    
-    st.divider()
-
     invest_produtivos = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'].isin(['Ações BR', 'FIIs', 'Ações INT']))]['Valor'].sum()
     caixa = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'] == 'Caixa')]['Valor'].sum()
     
@@ -871,7 +895,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if hist_lai.sum() == 0 or hist_ebit.empty:
         return None, "Dados de Lucro/EBIT insuficientes para calcular a alíquota de imposto."
         
-    aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum())
+    aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum()) if hist_lai.sum() != 0 else 0
     hist_nopat = hist_ebit * (1 - aliquota_efetiva)
     hist_dep_amort = obter_historico_metrica(empresa_dfc, C['DEPRECIACAO_AMORTIZACAO'])
     hist_fco = hist_nopat.add(hist_dep_amort, fill_value=0)
@@ -910,6 +934,8 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     kd_liquido = kd * (1 - aliquota_efetiva)
     
     # Novo cálculo de Beta usando o modelo de Hamada conforme o TCC
+    # Nota: A implementação ideal do modelo de Hamada exige o Beta desalavancado médio do setor.
+    # Esta implementação utiliza o Beta alavancado da própria empresa para desalavancar e realavancar.
     beta_hamada = calcular_beta_hamada(ticker_sa, ibov_data, params['periodo_beta_ibov'], aliquota_efetiva, divida_total, market_cap)
     
     ke = risk_free_rate + beta_hamada * premio_risco_mercado
@@ -918,24 +944,29 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     ev_mercado = market_cap + divida_total
     wacc = ((market_cap / ev_mercado) * ke) + ((divida_total / ev_mercado) * kd_liquido) if ev_mercado > 0 else ke
     
+    g = params['taxa_crescimento_perpetuidade']
+    
+    if wacc <= g or pd.isna(wacc):
+        return None, "WACC inválido ou menor/igual à taxa de crescimento na perpetuidade. Ajuste os parâmetros."
+
     # Cálculo do EVA e EFV conforme TCC
     eva = (roic - wacc) * capital_empregado
     riqueza_atual = (eva / wacc) if wacc > 0 else 0.0
     riqueza_futura_esperada = ev_mercado - capital_empregado
     efv = riqueza_futura_esperada - riqueza_atual
     
-    g = params['taxa_crescimento_perpetuidade']
-    
-    if wacc <= g or pd.isna(wacc):
-        return None, "WACC inválido ou menor/igual à taxa de crescimento na perpetuidade. Ajuste os parâmetros."
-    
     # Fluxo de Caixa Descontado (DCF) - Valor Residual
     valor_residual = (fco_medio * (1 + g)) / (wacc - g)
     equity_value = valor_residual - divida_total
     
-    preco_justo = equity_value / n_acoes if n_acoes > 0 else 0
-    margem_seguranca = (preco_justo / preco_atual) - 1 if preco_atual > 0 else 0
-    
+    # Se o valor intrínseco (equity_value) for negativo ou zero, o preço justo é zero.
+    if equity_value <= 0 or n_acoes == 0:
+        preco_justo = 0.00
+        margem_seguranca = -100.0
+    else:
+        preco_justo = equity_value / n_acoes
+        margem_seguranca = (preco_justo / preco_atual) - 1 if preco_atual > 0 else 0
+
     return {'Empresa': nome_empresa, 'Ticker': ticker_sa.replace('.SA', ''), 'Preço Atual (R$)': preco_atual, 'Preço Justo (R$)': preco_justo, 'Margem Segurança (%)': margem_seguranca * 100, 'Market Cap (R$)': market_cap, 'Capital Empregado (R$)': capital_empregado, 'Dívida Total (R$)': divida_total, 'NOPAT Médio (R$)': nopat_medio, 'ROIC (%)': roic * 100, 'Beta': beta_hamada, 'Custo do Capital (WACC %)': wacc * 100, 'Spread (ROIC-WACC %)': (roic - wacc) * 100, 'EVA (R$)': eva, 'EFV (R$)': efv, 'hist_nopat': hist_nopat, 'hist_fco': hist_fco, 'hist_roic': (hist_nopat / capital_empregado) * 100, 'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)}, "Análise concluída com sucesso."
 
 def executar_analise_completa(ticker_map, demonstrativos, market_data, params, progress_bar):
@@ -1047,36 +1078,52 @@ def ui_valuation():
                 col1.metric("Preço Atual", f"R$ {resultados['Preço Atual (R$)']:.2f}"); col2.metric("Preço Justo (DCF)", f"R$ {resultados['Preço Justo (R$)']:.2f}")
                 ms_delta = resultados['Margem Segurança (%)']; col3.metric("Margem de Segurança", f"{ms_delta:.2f}%", delta=f"{ms_delta:.2f}%" if not pd.isna(ms_delta) else None)
                 st.divider()
-                
-                # Gráfico interativo de NOPAT e FCO
-                df_nopat_fco = pd.DataFrame({
-                    'NOPAT': resultados['hist_nopat'],
-                    'FCO': resultados['hist_fco']
-                }).reset_index().rename(columns={'index': 'Ano'})
-                
-                fig_nopat_fco = go.Figure()
-                fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco['NOPAT'], name='NOPAT', marker_color='#00F6FF'))
-                fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco['FCO'], name='FCO', marker_color='#E94560'))
-                fig_nopat_fco.update_layout(title='Histórico de NOPAT e FCO', barmode='group', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
-                st.plotly_chart(fig_nopat_fco, use_container_width=True)
 
-                st.divider()
+                with st.expander("📊 Gráficos de Histórico e Indicadores", expanded=True):
+                    # Gráfico interativo de NOPAT e FCO
+                    df_nopat_fco = pd.DataFrame({
+                        'NOPAT': resultados['hist_nopat'],
+                        'FCO': resultados['hist_fco']
+                    }).reset_index(names=['Ano'])
+                    
+                    fig_nopat_fco = go.Figure()
+                    fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco['NOPAT'], name='NOPAT', marker_color='#00F6FF'))
+                    fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco['FCO'], name='FCO', marker_color='#E94560'))
+                    fig_nopat_fco.update_layout(title='Histórico de NOPAT e FCO', barmode='group', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
+                    st.plotly_chart(fig_nopat_fco, use_container_width=True)
+
+                    st.divider()
+                    
+                    # Gráfico interativo de ROIC vs WACC
+                    df_roic_wacc = pd.DataFrame({
+                        'ROIC': resultados['hist_roic'],
+                        'WACC': resultados['wacc_series']
+                    }).reset_index(names=['Ano'])
+                    
+                    fig_roic_wacc = go.Figure()
+                    fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc['ROIC'], mode='lines+markers', name='ROIC (%)', line=dict(color='#00FF87', width=3)))
+                    fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc['WACC'], mode='lines+markers', name='WACC (%)', line=dict(color='#E94560', width=3)))
+                    fig_roic_wacc.update_layout(title='ROIC vs WACC (Indicadores de Criação de Valor)', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
+                    st.plotly_chart(fig_roic_wacc, use_container_width=True)
                 
-                # Gráfico interativo de ROIC vs WACC
-                df_roic_wacc = pd.DataFrame({
-                    'ROIC': resultados['hist_roic'],
-                    'WACC': resultados['wacc_series']
-                }).reset_index().rename(columns={'index': 'Ano'})
-                
-                fig_roic_wacc = go.Figure()
-                fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc['ROIC'], mode='lines+markers', name='ROIC (%)', line=dict(color='#00FF87', width=3)))
-                fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc['WACC'], mode='lines+markers', name='WACC (%)', line=dict(color='#E94560', width=3)))
-                fig_roic_wacc.update_layout(title='ROIC vs WACC (Indicadores de Criação de Valor)', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
-                st.plotly_chart(fig_roic_wacc, use_container_width=True)
-                
-                with st.expander("🔢 Detalhes da Análise de Valuation", expanded=False):
-                    df_display = pd.DataFrame.from_dict(resultados, orient='index', columns=['Valor'])
-                    st.dataframe(df_display.drop(['hist_nopat', 'hist_fco', 'hist_roic', 'wacc_series']), use_container_width=True)
+                with st.expander("🔢 Detalhes e Direcionadores de Valor", expanded=False):
+                    df_display = pd.DataFrame.from_dict({
+                        'Empresa': resultados['Empresa'],
+                        'Ticker': resultados['Ticker'],
+                        'Preço Atual (R$)': f"R$ {resultados['Preço Atual (R$)']:.2f}",
+                        'Preço Justo (DCF) (R$)': f"R$ {resultados['Preço Justo (R$)']:.2f}",
+                        'Margem de Segurança (%)': f"{resultados['Margem Segurança (%)']:.2f}%",
+                        '-----': '---',
+                        'ROIC (%)': f"{resultados['ROIC (%)']:.2f}%",
+                        'Beta': f"{resultados['Beta']:.2f}",
+                        'Custo do Capital (WACC %)': f"{resultados['Custo do Capital (WACC %)']:.2f}%",
+                        'Spread (ROIC-WACC %)': f"{resultados['Spread (ROIC-WACC %)']:.2f}%",
+                        'EVA (R$)': f"R$ {resultados['EVA (R$)']:.2f}",
+                        'EFV (R$)': f"R$ {resultados['EFV (R$)']:.2f}",
+                        'Capital Empregado (R$)': f"R$ {resultados['Capital Empregado (R$)']:.2f}",
+                        'Dívida Total (R$)': f"R$ {resultados['Dívida Total (R$)']:.2f}",
+                    }, orient='index', columns=['Valor'])
+                    st.table(df_display)
             else:
                 st.error(f"Não foi possível analisar {ticker_selecionado}. Motivo: {status_msg}")
 
