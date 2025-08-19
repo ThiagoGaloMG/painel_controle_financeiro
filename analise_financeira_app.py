@@ -184,7 +184,8 @@ def setup_diretorios():
 @st.cache_data(show_spinner=False)
 def preparar_dados_cvm(anos_historico):
     """
-    Baixa e processa os dados anuais da CVM para os demonstrativos financeiros.
+    Baixa e processa os dados anuais da CVM para os demonstrativos financeiros,
+    agora com uma lógica mais robusta para arquivos ZIP.
 
     Args:
         anos_historico (int): Número de anos de histórico a serem baixados.
@@ -194,53 +195,42 @@ def preparar_dados_cvm(anos_historico):
     """
     ano_final = datetime.today().year
     ano_inicial = ano_final - anos_historico
+    demonstrativos_consolidados = {}
+    
     with st.spinner(f"Verificando e baixando dados da CVM de {ano_inicial} a {ano_final-1}..."):
-        demonstrativos_consolidados = {}
-        tipos_demonstrativos = ['DRE', 'BPA', 'BPP', 'DFC_MI']
         
-        # Otimização: A CVM possui arquivos ITR e DFP. O código atual usa apenas DFP.
-        # Para um histórico mais completo, seria ideal combinar ITR e DFP.
-        # O código abaixo é uma implementação simplificada usando apenas DFP.
-        
-        for tipo in tipos_demonstrativos:
-            lista_dfs_anuais = []
-            for ano in range(ano_inicial, ano_final):
-                nome_arquivo_csv = f'dfp_cia_aberta_{tipo}_con_{ano}.csv'
-                caminho_arquivo = CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] / nome_arquivo_csv
+        # Iterar sobre os anos para processar um ZIP por vez
+        for ano in range(ano_inicial, ano_final):
+            nome_zip = f'dfp_cia_aberta_{ano}.zip'
+            caminho_zip = CONFIG["DIRETORIO_DADOS_CVM"] / nome_zip
+            url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
+
+            try:
+                # Baixa o arquivo ZIP se ele não existir localmente
+                if not caminho_zip.exists():
+                    response = requests.get(url_zip, stream=True, timeout=60)
+                    response.raise_for_status()
+                    with open(caminho_zip, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
                 
-                # Verificação se o arquivo já existe para evitar re-download
-                if not caminho_arquivo.exists():
-                    nome_zip = f'dfp_cia_aberta_{ano}.zip'
-                    caminho_zip = CONFIG["DIRETORIO_DADOS_CVM"] / nome_zip
-                    url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
-                    
-                    try:
-                        response = requests.get(url_zip, stream=True, timeout=60)
-                        response.raise_for_status()
-                        with open(caminho_zip, 'wb') as f:
-                            for chunk in response.iter_content(chunk_size=8192):
-                                f.write(chunk)
+                # Abre o ZIP e processa os arquivos CSV necessários
+                with ZipFile(caminho_zip, 'r') as z:
+                    for tipo in ['DRE', 'BPA', 'BPP', 'DFC_MI']:
+                        nome_arquivo_csv = f'dfp_cia_aberta_{tipo}_con_{ano}.csv'
+                        if nome_arquivo_csv in z.namelist():
+                            with z.open(nome_arquivo_csv) as f:
+                                df_anual = pd.read_csv(f, sep=';', encoding='ISO-8859-1', low_memory=False)
+                                
+                                # Anexa o DataFrame do ano ao tipo correspondente
+                                if tipo.lower() not in demonstrativos_consolidados:
+                                    demonstrativos_consolidados[tipo.lower()] = pd.DataFrame()
+                                demonstrativos_consolidados[tipo.lower()] = pd.concat([demonstrativos_consolidados[tipo.lower()], df_anual], ignore_index=True)
                         
-                        with ZipFile(caminho_zip, 'r') as z:
-                            if nome_arquivo_csv in z.namelist():
-                                z.extract(nome_arquivo_csv, CONFIG["DIRETORIO_DADOS_EXTRAIDOS"])
-                            else:
-                                continue
-                    except Exception as e:
-                        st.warning(f"Não foi possível baixar ou extrair os dados do ano {ano}. Erro: {e}")
-                        continue
-                
-                if caminho_arquivo.exists():
-                    try:
-                        df_anual = pd.read_csv(caminho_arquivo, sep=';', encoding='ISO-8859-1', low_memory=False)
-                        lista_dfs_anuais.append(df_anual)
-                    except Exception as e:
-                        st.error(f"Erro ao ler o arquivo {caminho_arquivo}. Erro: {e}")
-                        continue
-            
-            if lista_dfs_anuais:
-                demonstrativos_consolidados[tipo.lower()] = pd.concat(lista_dfs_anuais, ignore_index=True)
-                
+            except Exception as e:
+                st.warning(f"Não foi possível baixar ou extrair os dados do ano {ano}. Erro: {e}")
+                continue
+
     return demonstrativos_consolidados
 
 @st.cache_data
@@ -843,12 +833,17 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
         tuple: Dicionário de resultados ou None, e uma mensagem de status.
     """
     (risk_free_rate, _, premio_risco_mercado, ibov_data) = market_data
-    dre, bpa, bpp, dfc = demonstrativos['dre'], demonstrativos['bpa'], demonstrativos['bpp'], demonstrativos['dfc_mi']
+
+    # Acesso seguro aos dados do demonstrativo para evitar o KeyError
+    dre = demonstrativos.get('dre', pd.DataFrame())
+    bpa = demonstrativos.get('bpa', pd.DataFrame())
+    bpp = demonstrativos.get('bpp', pd.DataFrame())
+    dfc = demonstrativos.get('dfc_mi', pd.DataFrame())
     
-    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm]
-    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm]
-    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm]
-    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm]
+    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm] if not dre.empty else pd.DataFrame()
+    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm] if not bpa.empty else pd.DataFrame()
+    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm] if not bpp.empty else pd.DataFrame()
+    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm] if not dfc.empty else pd.DataFrame()
     
     if any(df.empty for df in [empresa_dre, empresa_bpa, empresa_bpp, empresa_dfc]):
         return None, "Dados CVM históricos incompletos ou inexistentes."
@@ -1118,14 +1113,18 @@ def reclassificar_contas_fleuriet(df_bpa, df_bpp, contas_cvm):
 def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
     """Processa a análise de saúde financeira pelos modelos Fleuriet e Z-Score de Prado."""
     C = CONFIG['CONTAS_CVM']
-    bpa = demonstrativos['bpa'][demonstrativos['bpa']['CD_CVM'] == codigo_cvm]
-    bpp = demonstrativos['bpp'][demonstrativos['bpp']['CD_CVM'] == codigo_cvm]
-    dre = demonstrativos['dre'][demonstrativos['dre']['CD_CVM'] == codigo_cvm]
+    bpa = demonstrativos.get('bpa', pd.DataFrame())
+    bpp = demonstrativos.get('bpp', pd.DataFrame())
+    dre = demonstrativos.get('dre', pd.DataFrame())
+
+    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm] if not bpa.empty else pd.DataFrame()
+    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm] if not bpp.empty else pd.DataFrame()
+    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm] if not dre.empty else pd.DataFrame()
     
-    if any(df.empty for df in [bpa, bpp, dre]):
+    if any(df.empty for df in [empresa_bpa, empresa_bpp, empresa_dre]):
         return None
     
-    aco, pco, ap, pl, pnc = reclassificar_contas_fleuriet(bpa, bpp, C)
+    aco, pco, ap, pl, pnc = reclassificar_contas_fleuriet(empresa_bpa, empresa_bpp, C)
     
     if any(s.empty for s in [aco, pco, ap, pl, pnc]):
         return None
@@ -1146,11 +1145,11 @@ def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
         # Cálculo do Z-Score de Prado conforme o TCC
         info = yf.Ticker(ticker_sa).info
         market_cap = info.get('marketCap', 0)
-        ativo_total = obter_historico_metrica(bpa, C['ATIVO_TOTAL']).iloc[-1]
-        passivo_total = obter_historico_metrica(bpp, C['PASSIVO_TOTAL']).iloc[-1]
+        ativo_total = obter_historico_metrica(empresa_bpa, C['ATIVO_TOTAL']).iloc[-1]
+        passivo_total = obter_historico_metrica(empresa_bpp, C['PASSIVO_TOTAL']).iloc[-1]
         lucro_retido = pl.iloc[-1] - pl.iloc[0]
-        ebit = obter_historico_metrica(dre, C['EBIT']).iloc[-1]
-        vendas = obter_historico_metrica(dre, C['RECEITA_LIQUIDA']).iloc[-1]
+        ebit = obter_historico_metrica(empresa_dre, C['EBIT']).iloc[-1]
+        vendas = obter_historico_metrica(empresa_dre, C['RECEITA_LIQUIDA']).iloc[-1]
         
         X1 = cdg.iloc[-1] / ativo_total
         X2 = lucro_retido / ativo_total
@@ -1243,3 +1242,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
