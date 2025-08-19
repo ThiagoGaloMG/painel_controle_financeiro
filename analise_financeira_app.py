@@ -877,7 +877,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
         ticker_sa (str): Ticker da empresa no formato 'ABCD3.SA'.
         codigo_cvm (int): Código CVM da empresa.
         demonstrativos (dict): Dicionário de DataFrames com dados da CVM.
-        market_data (tuple): Dados de mercado (taxa livre de risco, etc.).
+        market_data (tuple): Dados de mercado (taxa libre de risco, etc.).
         params (dict): Parâmetros do modelo (taxa de crescimento, etc.).
 
     Returns:
@@ -918,6 +918,8 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     hist_ebit = obter_historico_metrica(empresa_dre, C['EBIT'])
     hist_impostos = obter_historico_metrica(empresa_dre, C['IMPOSTO_DE_RENDA_CSLL'])
     hist_lai = obter_historico_metrica(empresa_dre, C['LUCRO_ANTES_IMPOSTOS'])
+    hist_rec_liquida = obter_historico_metrica(empresa_dre, C['RECEITA_LIQUIDA'])
+    hist_lucro_liquido = obter_historico_metrica(empresa_dre, C['LUCRO_LIQUIDO'])
 
     if hist_lai.sum() == 0 or hist_ebit.empty:
         return None, "Dados de Lucro/EBIT insuficientes para calcular a alíquota de imposto."
@@ -993,8 +995,36 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     else:
         preco_justo = equity_value / n_acoes
         margem_seguranca = (preco_justo / preco_atual) - 1 if preco_atual > 0 else 0
+        
+    # Novos cálculos de direcionadores de valor
+    vendas_cresc_anual = hist_rec_liquida.pct_change().iloc[-1] if len(hist_rec_liquida) > 1 else 0
+    margem_lucro = (hist_lucro_liquido.iloc[-1] / hist_rec_liquida.iloc[-1]) if hist_rec_liquida.iloc[-1] != 0 else 0
+    divida_patrimonio_ratio = (divida_total / (market_cap + divida_total - divida_total)) if market_cap > 0 else np.nan
 
-    return {'Empresa': nome_empresa, 'Ticker': ticker_sa.replace('.SA', ''), 'Preço Atual (R$)': preco_atual, 'Preço Justo (R$)': preco_justo, 'Margem Segurança (%)': margem_seguranca * 100, 'Market Cap (R$)': market_cap, 'Capital Empregado (R$)': capital_empregado, 'Dívida Total (R$)': divida_total, 'NOPAT Médio (R$)': nopat_medio, 'ROIC (%)': roic * 100, 'Beta': beta_hamada, 'Custo do Capital (WACC %)': wacc * 100, 'Spread (ROIC-WACC %)': (roic - wacc) * 100, 'EVA (R$)': eva, 'EFV (R$)': efv, 'hist_nopat': hist_nopat, 'hist_fco': hist_fco, 'hist_roic': (hist_nopat / capital_empregado) * 100, 'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)}, "Análise concluída com sucesso."
+
+    return {
+        'Empresa': nome_empresa, 
+        'Ticker': ticker_sa.replace('.SA', ''), 
+        'Preço Atual (R$)': preco_atual, 
+        'Preço Justo (R$)': preco_justo, 
+        'Margem Segurança (%)': margem_seguranca * 100, 
+        'Market Cap (R$)': market_cap, 
+        'Capital Empregado (R$)': capital_empregado, 
+        'Dívida Total (R$)': divida_total, 
+        'NOPAT Médio (R$)': nopat_medio, 
+        'ROIC (%)': roic * 100, 
+        'Beta': beta_hamada, 
+        'Custo do Capital (WACC %)': wacc * 100, 
+        'Spread (ROIC-WACC %)': (roic - wacc) * 100, 
+        'EVA (R$)': eva, 
+        'EFV (R$)': efv,
+        'Crescimento Vendas (%)': vendas_cresc_anual * 100,
+        'Margem de Lucro (%)': margem_lucro * 100,
+        'Dívida/Patrimônio': divida_patrimonio_ratio,
+        'hist_nopat': hist_nopat, 
+        'hist_fco': hist_fco, 
+        'hist_roic': (hist_nopat / capital_empregado) * 100, 
+        'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)}, "Análise concluída com sucesso."
 
 def executar_analise_completa(ticker_map, demonstrativos, market_data, params, progress_bar):
     """Executa a análise de valuation para todas as empresas da lista."""
@@ -1134,23 +1164,35 @@ def ui_valuation():
                     st.plotly_chart(fig_roic_wacc, use_container_width=True)
                 
                 with st.expander("🔢 Detalhes e Direcionadores de Valor", expanded=False):
-                    df_display = pd.DataFrame.from_dict({
-                        'Empresa': resultados['Empresa'],
-                        'Ticker': resultados['Ticker'],
-                        'Preço Atual (R$)': f"R$ {resultados['Preço Atual (R$)']:.2f}",
-                        'Preço Justo (DCF) (R$)': f"R$ {resultados['Preço Justo (R$)']:.2f}",
-                        'Margem de Segurança (%)': f"{resultados['Margem Segurança (%)']:.2f}%",
-                        '-----': '---',
-                        'ROIC (%)': f"{resultados['ROIC (%)']:.2f}%",
-                        'Beta': f"{resultados['Beta']:.2f}",
-                        'Custo do Capital (WACC %)': f"{resultados['Custo do Capital (WACC %)']:.2f}%",
-                        'Spread (ROIC-WACC %)': f"{resultados['Spread (ROIC-WACC %)']:.2f}%",
-                        'EVA (R$)': f"R$ {resultados['EVA (R$)']:.2f}",
-                        'EFV (R$)': f"R$ {resultados['EFV (R$)']:.2f}",
-                        'Capital Empregado (R$)': f"R$ {resultados['Capital Empregado (R$)']:.2f}",
-                        'Dívida Total (R$)': f"R$ {resultados['Dívida Total (R$)']:.2f}",
-                    }, orient='index', columns=['Valor'])
-                    st.table(df_display)
+                    st.subheader("Direcionadores de Valor")
+                    # Tabela com Direcionadores de Valor
+                    direcionadores_operacionais = {
+                        "Crescimento das Vendas (último ano)": f"{resultados['Crescimento Vendas (%)']:.2f}%",
+                        "Margem de Lucro (último ano)": f"{resultados['Margem de Lucro (%)']:.2f}%",
+                        # Outros direcionadores operacionais podem ser adicionados aqui
+                    }
+                    direcionadores_financiamento = {
+                        "Custo do Capital Próprio (Ke)": f"{ke*100:.2f}%",
+                        "Custo do Capital de Terceiros (Kd)": f"{kd*100:.2f}%",
+                        "Estrutura de Capital (Dívida/Patrimônio)": f"{resultados['Dívida/Patrimônio']:.2f}",
+                        "Beta (Risco Financeiro)": f"{resultados['Beta']:.2f}",
+                    }
+                    direcionadores_investimento = {
+                        "ROIC": f"{resultados['ROIC (%)']:.2f}%",
+                        "Capital Empregado": f"R$ {resultados['Capital Empregado (R$)']:.2f}",
+                        "EVA": f"R$ {resultados['EVA (R$)']:.2f}",
+                    }
+
+                    col_op, col_fin, col_inv = st.columns(3)
+                    with col_op:
+                        st.markdown("**Estratégias Operacionais**")
+                        st.table(pd.DataFrame.from_dict(direcionadores_operacionais, orient='index', columns=['Valor']))
+                    with col_fin:
+                        st.markdown("**Estratégias de Financiamento**")
+                        st.table(pd.DataFrame.from_dict(direcionadores_financiamento, orient='index', columns=['Valor']))
+                    with col_inv:
+                        st.markdown("**Estratégias de Investimento**")
+                        st.table(pd.DataFrame.from_dict(direcionadores_investimento, orient='index', columns=['Valor']))
             else:
                 st.error(f"Não foi possível analisar {ticker_selecionado}. Motivo: {status_msg}")
 
