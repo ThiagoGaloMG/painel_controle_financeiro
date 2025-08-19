@@ -36,7 +36,7 @@ st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", pa
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
 <style>
-    /* Paleta de Cores Neon Profissional */
+    /* Paleta de Cores Neon Profissional (Contraste Aprimorado) */
     :root {
         --primary-bg: #0A0A1A; /* Fundo carvão profundo, quase preto */
         --secondary-bg: #1A1A2E; /* Fundo secundário azul/roxo escuro */
@@ -44,7 +44,7 @@ st.markdown("""
         --primary-accent: #00F6FF; /* Ciano neon vibrante */
         --secondary-accent: #E94560; /* Vermelho/rosa neon para contraste */
         --positive-accent: #00FF87; /* Verde neon */
-        --text-color: #E0E0E0; /* Cinza claro para texto, menos cansativo */
+        --text-color: #F0F2F6; /* Branco acinzentado, mais claro e legível */
         --header-color: #FFFFFF; /* Branco puro para títulos e labels importantes */
         --border-color: #5372F0; /* Borda azul sutil */
     }
@@ -1288,3 +1288,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
