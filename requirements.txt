@@ -1,5 +1,4 @@
-# requirements.txt
-streamlit==1.32.0
+streamlit==1.33.0
 pandas==2.2.2
 numpy==1.26.4
 yfinance==0.2.37
@@ -13,3 +12,5 @@ tqdm==4.66.2
 pyarrow==16.1.0
 beautifulsoup4==4.12.3
 html5lib==1.1
+tenacity==8.2.3
+uuid==1.30
