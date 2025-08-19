@@ -36,7 +36,7 @@ st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", pa
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
 <style>
-    /* Paleta de Cores Neon Profissional (Contraste Aprimorado) */
+    /* Paleta de Cores Neon Profissional (Contraste Aprimorado V2) */
     :root {
         --primary-bg: #0A0A1A; /* Fundo carvão profundo, quase preto */
         --secondary-bg: #1A1A2E; /* Fundo secundário azul/roxo escuro */
@@ -44,7 +44,7 @@ st.markdown("""
         --primary-accent: #00F6FF; /* Ciano neon vibrante */
         --secondary-accent: #E94560; /* Vermelho/rosa neon para contraste */
         --positive-accent: #00FF87; /* Verde neon */
-        --text-color: #F0F2F6; /* Branco acinzentado, mais claro e legível */
+        --text-color: #F8F9FA; /* Branco quase puro para melhor legibilidade */
         --header-color: #FFFFFF; /* Branco puro para títulos e labels importantes */
         --border-color: #5372F0; /* Borda azul sutil */
     }
@@ -80,6 +80,7 @@ st.markdown("""
         background-color: transparent;
         border-bottom: 2px solid var(--secondary-bg);
         transition: all 0.3s;
+        color: var(--text-color);
     }
    .stTabs [aria-selected="true"] {
         color: var(--primary-accent);
@@ -101,6 +102,12 @@ st.markdown("""
    .stMetric > div:nth-child(2) { /* O valor da métrica */
         color: var(--header-color);
     }
+   .stMetric > div[data-testid="stMetricValue"] {
+        color: var(--header-color) !important;
+   }
+   .stMetric > div[data-testid="stMetricDelta"] {
+        color: var(--primary-accent) !important;
+   }
 
     /* Botões com Efeito Neon */
    .stButton > button {
@@ -129,13 +136,33 @@ st.markdown("""
     [data-testid="stExpander"] summary, [data-testid="stForm"] label {
         font-size: 1.1em;
         font-weight: 600;
-        color: var(--header-color)!important;
+        color: var(--header-color) !important;
+    }
+    
+    /* Corrigindo a cor do texto no expander, data_editor e tabela */
+    [data-testid="stExpander"] p, 
+    [data-testid="stExpander"] .stMarkdown,
+    .stTable, .stDataFrame {
+        color: var(--text-color);
+    }
+    .stSelectbox label, .stDateInput label, .stNumberInput label, .stTextInput label {
+        color: var(--text-color);
+    }
+    
+    /* Legendas dos gráficos e labels de eixos */
+    .modebar-container {
+        color: var(--text-color) !important;
+    }
+    .xtick, .ytick, .legendtoggle {
+        color: var(--text-color) !important;
+    }
+    .g-gtitle, .g-xtitle, .g-ytitle {
+        color: var(--text-color) !important;
+    }
+    .g-legend-title {
+        color: var(--text-color) !important;
     }
 
-    /* Barras de progresso */
-    [data-testid="stProgressBar"] > div {
-        background-image: linear-gradient(90deg, var(--primary-accent), var(--positive-accent));
-    }
 </style>""", unsafe_allow_html=True)
 
 
@@ -1288,4 +1315,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
