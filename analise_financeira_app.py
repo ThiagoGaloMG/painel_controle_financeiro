@@ -18,22 +18,228 @@ import uuid
 import concurrent.futures
 from scipy.stats import norm
 from typing import Dict, List, Optional
+import logging
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
 
 # ==============================================================================
-# CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA (MANTIDO)
+# CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA
 # ==============================================================================
-# ... (existing CSS and config code remains unchanged) ...
+st.set_page_config(
+    page_title="Painel de Controle Financeiro",
+    page_icon="💼",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# CSS personalizado
+st.markdown("""
+<style>
+    :root {
+        --primary: #1f77b4;
+        --background: #0e1117;
+        --secondary: #2a2f3d;
+        --text-primary: #f0f6fc;
+        --text-secondary: #8b949e;
+        --success: #2ecc71;
+        --warning: #f39c12;
+        --danger: #e74c3c;
+        --widget-bg: rgba(255, 255, 255, 0.05);
+    }
+    
+    body {
+        background-color: var(--background);
+        color: var(--text-primary);
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    .stApp {
+        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+        background-attachment: fixed;
+    }
+    
+    .st-bb {
+        background-color: var(--widget-bg);
+    }
+    
+    .st-at {
+        background-color: var(--secondary);
+    }
+    
+    .st-ax {
+        color: var(--text-primary);
+    }
+    
+    .stButton>button {
+        background-color: var(--primary);
+        color: white;
+        border-radius: 8px;
+        padding: 8px 16px;
+        transition: all 0.3s;
+    }
+    
+    .stButton>button:hover {
+        background-color: #1669a2;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    .stTextInput>div>div>input {
+        background-color: var(--widget-bg);
+        color: var(--text-primary);
+        border-radius: 8px;
+    }
+    
+    .stNumberInput>div>div>input {
+        background-color: var(--widget-bg);
+        color: var(--text-primary);
+        border-radius: 8px;
+    }
+    
+    .stSelectbox>div>div>div {
+        background-color: var(--widget-bg);
+        color: var(--text-primary);
+        border-radius: 8px;
+    }
+    
+    .stDateInput>div>div>input {
+        background-color: var(--widget-bg);
+        color: var(--text-primary);
+        border-radius: 8px;
+    }
+    
+    .stAlert {
+        border-radius: 12px;
+        padding: 16px;
+    }
+    
+    .stProgress>div>div>div {
+        background-color: var(--success);
+    }
+    
+    .stExpander {
+        background-color: var(--widget-bg);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    
+    .stTab {
+        background-color: transparent !important;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background-color: var(--widget-bg) !important;
+        border-radius: 8px !important;
+        padding: 10px 20px !important;
+        transition: all 0.3s !important;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background-color: var(--primary) !important;
+        color: white !important;
+        font-weight: bold;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    .metric-box {
+        background-color: var(--widget-bg);
+        border-radius: 12px;
+        padding: 16px;
+        text-align: center;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        transition: transform 0.3s;
+    }
+    
+    .metric-box:hover {
+        transform: translateY(-5px);
+    }
+    
+    .metric-value {
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin: 10px 0;
+    }
+    
+    .metric-title {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ==============================================================================
-# SISTEMA DE PERSISTÊNCIA APRIMORADO (MELHORIAS ADICIONADAS)
+# SISTEMA DE PERSISTÊNCIA APRIMORADO
 # ==============================================================================
+DATA_DIR = Path("data")
+TRANSACTIONS_FILE = DATA_DIR / "transactions.csv"
+GOALS_FILE = DATA_DIR / "goals.json"
+
+def setup_diretorios():
+    """Cria diretórios necessários se não existirem."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if not TRANSACTIONS_FILE.exists():
+        pd.DataFrame(columns=["ID", "Data", "Categoria", "Descrição", "Valor", "Tipo"]).to_csv(TRANSACTIONS_FILE, index=False)
+    if not GOALS_FILE.exists():
+        with open(GOALS_FILE, 'w') as f:
+            f.write('{}')
+
+def carregar_transacoes():
+    """Carrega transações do arquivo CSV."""
+    if TRANSACTIONS_FILE.exists():
+        df = pd.read_csv(TRANSACTIONS_FILE, parse_dates=["Data"])
+        # Garantir conversão numérica para a coluna Valor
+        df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
+        return df
+    return pd.DataFrame(columns=["ID", "Data", "Categoria", "Descrição", "Valor", "Tipo"])
+
+def salvar_transacoes(df):
+    """Salva transações no arquivo CSV."""
+    df.to_csv(TRANSACTIONS_FILE, index=False)
+
+def carregar_metas():
+    """Carrega metas do arquivo JSON."""
+    if GOALS_FILE.exists():
+        try:
+            with open(GOALS_FILE, 'r') as f:
+                return pd.read_json(f).to_dict()
+        except:
+            return {}
+    return {}
+
+def salvar_metas(metas):
+    """Salva metas no arquivo JSON."""
+    with open(GOALS_FILE, 'w') as f:
+        pd.DataFrame(metas).to_json(f)
 
 def inicializar_session_state():
     """Inicializa o estado da sessão com estruturas de dados mais robustas."""
-    # ... (existing initialization code) ...
+    if 'transactions' not in st.session_state:
+        st.session_state.transactions = carregar_transacoes()
+    
+    if 'goals' not in st.session_state:
+        st.session_state.goals = carregar_metas() or {
+            'Reserva de Emergência': {'meta': 20000, 'atual': 0},
+            'Comprar um Carro': {'meta': 50000, 'atual': 0},
+            'Viagem Internacional': {'meta': 15000, 'atual': 0}
+        }
+    
+    if 'categorias' not in st.session_state:
+        st.session_state.categorias = {
+            'Receita': ['Salário', 'Freelance', 'Investimentos', 'Outros'],
+            'Despesa': ['Moradia', 'Alimentação', 'Transporte', 'Lazer', 'Saúde', 'Educação', 'Outros'],
+            'Investimento': ['Ações', 'Fundos Imobiliários', 'Renda Fixa', 'Criptomoedas', 'Outros']
+        }
     
     # Novo: Adicionar histórico de métricas
     if 'metric_history' not in st.session_state:
@@ -48,7 +254,78 @@ def inicializar_session_state():
             'scenarios': {}
         }
 
-# ... (existing functions remain) ...
+def adicionar_transacao(data, categoria, descricao, valor, tipo):
+    """Adiciona uma nova transação ao DataFrame."""
+    novo_id = str(uuid.uuid4())
+    nova_transacao = pd.DataFrame([{
+        "ID": novo_id,
+        "Data": data,
+        "Categoria": categoria,
+        "Descrição": descricao,
+        "Valor": valor,
+        "Tipo": tipo
+    }])
+    
+    st.session_state.transactions = pd.concat(
+        [st.session_state.transactions, nova_transacao], 
+        ignore_index=True
+    )
+    salvar_transacoes(st.session_state.transactions)
+    return novo_id
+
+def atualizar_metas():
+    """Atualiza o progresso das metas com base nas transações."""
+    df = st.session_state.transactions
+    
+    # Atualizar metas apenas para investimentos
+    for meta in st.session_state.goals:
+        st.session_state.goals[meta]['atual'] = 0
+    
+    # Calcular valor total investido
+    investimentos = df[df['Tipo'] == 'Investimento']['Valor'].sum()
+    
+    # Distribuir o valor total investido proporcionalmente entre as metas
+    total_metas = sum(st.session_state.goals[meta]['meta'] for meta in st.session_state.goals)
+    for meta in st.session_state.goals:
+        proporcao = st.session_state.goals[meta]['meta'] / total_metas
+        st.session_state.goals[meta]['atual'] = proporcao * investimentos
+    
+    salvar_metas(st.session_state.goals)
+
+def calcular_metricas_financeiras():
+    """Calcula métricas financeiras básicas."""
+    df = st.session_state.transactions
+    metricas = {
+        'total_receitas': 0,
+        'total_despesas': 0,
+        'total_investido': 0,
+        'patrimonio_liquido': 0,
+        'taxa_poupanca': 0
+    }
+    
+    if not df.empty:
+        # Garantir que Valor é numérico
+        df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce').fillna(0)
+        
+        # Calcular totais
+        metricas['total_receitas'] = df[df['Tipo'] == 'Receita']['Valor'].sum()
+        metricas['total_despesas'] = df[df['Tipo'] == 'Despesa']['Valor'].sum()
+        metricas['total_investido'] = df[df['Tipo'] == 'Investimento']['Valor'].sum()
+        
+        # Calcular patrimônio líquido
+        metricas['patrimonio_liquido'] = (
+            metricas['total_receitas'] - 
+            metricas['total_despesas'] - 
+            metricas['total_investido']
+        )
+        
+        # Calcular taxa de poupança
+        if metricas['total_receitas'] > 0:
+            metricas['taxa_poupanca'] = (
+                (metricas['total_investido'] / metricas['total_receitas']) * 100
+            )
+    
+    return metricas
 
 # NOVO: Cálculo de métricas com cache
 @st.cache_data(ttl=300)
@@ -65,6 +342,9 @@ def simular_cenarios_financeiros():
     df_trans = st.session_state.transactions.copy()
     if df_trans.empty:
         return {}
+    
+    # Garantir conversão numérica
+    df_trans['Valor'] = pd.to_numeric(df_trans['Valor'], errors='coerce').fillna(0)
     
     # Agrupar dados mensais
     df_trans['Data'] = pd.to_datetime(df_trans['Data'])
@@ -155,7 +435,13 @@ def analisar_saude_financeira():
     # 4. Diversificação (15%)
     total_investido = metricas['total_investido']
     if total_investido > 0:
-        razao_produtivos = metricas['invest_produtivos'] / total_investido
+        # Suposição: investimentos produtivos são ações e FIIs
+        invest_produtivos = st.session_state.transactions[
+            (st.session_state.transactions['Tipo'] == 'Investimento') &
+            (st.session_state.transactions['Categoria'].isin(['Ações', 'Fundos Imobiliários']))
+        ]['Valor'].sum()
+        
+        razao_produtivos = invest_produtivos / total_investido
         if razao_produtivos >= 0.7:
             score += 15
         elif razao_produtivos >= 0.5:
@@ -192,7 +478,7 @@ def analisar_saude_financeira():
     return score, status, cor
 
 # ==============================================================================
-# COMPONENTES DE UI APRIMORADOS (NOVOS COMPONENTES ADICIONADOS)
+# COMPONENTES DE UI APRIMORADOS
 # ==============================================================================
 
 def criar_dashboard_saude_financeira():
@@ -362,7 +648,175 @@ def criar_projecao_patrimonial():
         st.info("Clique em 'Gerar Projeções' para simular cenários futuros")
 
 # ==============================================================================
-# ABA DE SAÚDE FINANCEIRA (NOVA ABA)
+# ABA DE CONTROLE FINANCEIRO (CORRIGIDA)
+# ==============================================================================
+
+def ui_controle_financeiro():
+    """Interface do usuário para controle financeiro."""
+    st.header("💰 Controle Financeiro Pessoal")
+    
+    # Atualizar métricas
+    metricas = calcular_metricas_financeiras()
+    
+    # Dashboard de métricas
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown("""
+        <div class="metric-box">
+            <div class="metric-title">Receitas Totais</div>
+            <div class="metric-value">R$ {total_receitas:,.2f}</div>
+            <div class="metric-title">Último mês</div>
+        </div>
+        """.format(total_receitas=metricas['total_receitas']), unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class="metric-box">
+            <div class="metric-title">Despesas Totais</div>
+            <div class="metric-value">R$ {total_despesas:,.2f}</div>
+            <div class="metric-title">Último mês</div>
+        </div>
+        """.format(total_despesas=metricas['total_despesas']), unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div class="metric-box">
+            <div class="metric-title">Patrimônio Líquido</div>
+            <div class="metric-value">R$ {patrimonio:,.2f}</div>
+            <div class="metric-title">Atual</div>
+        </div>
+        """.format(patrimonio=metricas['patrimonio_liquido']), unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown("""
+        <div class="metric-box">
+            <div class="metric-title">Taxa de Poupança</div>
+            <div class="metric-value">{taxa_poupanca:.1f}%</div>
+            <div class="metric-title">Média mensal</div>
+        </div>
+        """.format(taxa_poupanca=metricas['taxa_poupanca']), unsafe_allow_html=True)
+    
+    # Divisão em colunas
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        # Formulário para adicionar nova transação
+        with st.expander("➕ Adicionar Nova Transação", expanded=True):
+            with st.form("nova_transacao"):
+                data = st.date_input("Data", value=datetime.today())
+                tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
+                
+                # Categorias dinâmicas baseadas no tipo
+                categoria = st.selectbox(
+                    "Categoria", 
+                    st.session_state.categorias[tipo]
+                )
+                
+                descricao = st.text_input("Descrição")
+                valor = st.number_input("Valor (R$)", value=0.0, min_value=0.0, step=100.0)
+                
+                if st.form_submit_button("Adicionar Transação"):
+                    adicionar_transacao(data, categoria, descricao, valor, tipo)
+                    st.success("Transação adicionada com sucesso!")
+                    atualizar_metas()
+    
+    with col2:
+        # Visualização de metas
+        with st.expander("🎯 Metas Financeiras", expanded=True):
+            meta_selecionada = st.selectbox(
+                "Selecione a meta para definir/alteração", 
+                list(st.session_state.goals.keys())
+            )
+            
+            # Usar 0.0 como valor padrão (correção aplicada)
+            novo_valor_meta = st.number_input(
+                "Definir Valor Alvo (R$)", 
+                value=st.session_state.goals[meta_selecionada]['meta'] * 1.0
+            )
+            
+            if st.button("Atualizar Meta"):
+                st.session_state.goals[meta_selecionada]['meta'] = novo_valor_meta
+                salvar_metas(st.session_state.goals)
+                st.success("Meta atualizada com sucesso!")
+            
+            st.divider()
+            
+            # Exibir progresso das metas
+            for meta, dados in st.session_state.goals.items():
+                progresso = min(dados['atual'] / dados['meta'], 1.0) if dados['meta'] > 0 else 0
+                st.write(f"**{meta}**")
+                st.progress(progresso)
+                st.caption(f"R$ {dados['atual']:,.2f} de R$ {dados['meta']:,.2f} ({progresso*100:.1f}%)")
+    
+    # Visualização de transações
+    st.subheader("📜 Histórico de Transações")
+    
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        filtro_tipo = st.selectbox("Filtrar por Tipo", ["Todos", "Receita", "Despesa", "Investimento"])
+    with col2:
+        filtro_categoria = st.selectbox("Filtrar por Categoria", ["Todas"] + list(set(
+            [cat for sublist in st.session_state.categorias.values() for cat in sublist]
+        )))
+    with col3:
+        filtro_periodo = st.selectbox("Filtrar por Período", ["Últimos 30 dias", "Últimos 90 dias", "Último ano", "Todos"])
+    
+    # Aplicar filtros
+    df_filtrado = st.session_state.transactions.copy()
+    
+    if filtro_tipo != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Tipo'] == filtro_tipo]
+    
+    if filtro_categoria != "Todas":
+        df_filtrado = df_filtrado[df_filtrado['Categoria'] == filtro_categoria]
+    
+    if filtro_periodo != "Todos":
+        hoje = datetime.today()
+        if filtro_periodo == "Últimos 30 dias":
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= (hoje - timedelta(days=30))]
+        elif filtro_periodo == "Últimos 90 dias":
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= (hoje - timedelta(days=90))]
+        elif filtro_periodo == "Último ano":
+            df_filtrado = df_filtrado[df_filtrado['Data'] >= (hoje - timedelta(days=365))]
+    
+    # Exibir tabela
+    st.dataframe(
+        df_filtrado.sort_values('Data', ascending=False).reset_index(drop=True),
+        height=400,
+        use_container_width=True
+    )
+    
+    # Opção para exportar dados
+    if st.button("📤 Exportar Dados para CSV"):
+        csv = df_filtrado.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Baixar CSV",
+            data=csv,
+            file_name="transacoes_financeiras.csv",
+            mime="text/csv"
+        )
+
+# ==============================================================================
+# ABA DE VALUATION (SIMPLIFICADA)
+# ==============================================================================
+
+def ui_valuation():
+    """Interface para análise de valuation de ativos."""
+    st.header("📈 Análise Fundamentalista de Ativos")
+    st.info("Esta funcionalidade está em desenvolvimento e será implementada em breve!")
+    
+# ==============================================================================
+# ABA DE MODELO FLEURIET (SIMPLIFICADA)
+# ==============================================================================
+
+def ui_modelo_fleuriet():
+    """Interface para aplicação do Modelo Fleuriet."""
+    st.header("🔬 Análise de Liquidez - Modelo Fleuriet")
+    st.info("Esta funcionalidade está em desenvolvimento e será implementada em breve!")
+
+# ==============================================================================
+# ABA DE SAÚDE FINANCEIRA
 # ==============================================================================
 
 def ui_saude_financeira():
@@ -395,7 +849,7 @@ def ui_saude_financeira():
         
     with tab_cenarios:
         st.subheader("🔄 Análise de Cenários")
-        # Implementar análise de cenários
+        st.info("Esta funcionalidade está em desenvolvimento e será implementada em breve!")
 
 # ==============================================================================
 # ESTRUTURA PRINCIPAL DO APP (MODIFICADA PARA ADICIONAR NOVA ABA)
@@ -412,12 +866,12 @@ def main():
     # Título principal
     st.title("🏦 Sistema Integrado de Controle Financeiro e Análise de Investimentos")
     
-    # Menu principal em abas (ADICIONADA NOVA ABA)
+    # Menu principal em abas
     tab1, tab2, tab3, tab4 = st.tabs([
         "💰 Controle Financeiro", 
         "📈 Análise de Valuation", 
         "🔬 Modelo Fleuriet",
-        "❤️ Saúde Financeira"  # NOVA ABA
+        "❤️ Saúde Financeira"
     ])
     
     with tab1:
@@ -429,7 +883,7 @@ def main():
     with tab3:
         ui_modelo_fleuriet()
     
-    with tab4:  # CONTEÚDO DA NOVA ABA
+    with tab4:
         ui_saude_financeira()
     
     # Footer com informações
