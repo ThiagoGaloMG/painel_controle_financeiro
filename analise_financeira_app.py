@@ -36,7 +36,7 @@ st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", pa
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
 <style>
-    /* Paleta de Cores Neon Profissional (Contraste Aprimorado V2) */
+    /* Paleta de Cores Neon Profissional (Contraste Aprimorado V3) */
     :root {
         --primary-bg: #0A0A1A; /* Fundo carvão profundo, quase preto */
         --secondary-bg: #1A1A2E; /* Fundo secundário azul/roxo escuro */
@@ -47,6 +47,7 @@ st.markdown("""
         --text-color: #F8F9FA; /* Branco quase puro para melhor legibilidade */
         --header-color: #FFFFFF; /* Branco puro para títulos e labels importantes */
         --border-color: #5372F0; /* Borda azul sutil */
+        --tab-active-bg: #323A52; /* Fundo escuro para a aba ativa */
     }
 
     body {
@@ -86,6 +87,10 @@ st.markdown("""
         color: var(--primary-accent);
         border-bottom: 2px solid var(--primary-accent);
         box-shadow: 0 2px 15px -5px var(--primary-accent);
+        background-color: var(--tab-active-bg);
+    }
+    .stTabs [data-baseweb="tab"]:not([aria-selected="true"]) > div {
+        color: #A0A4B8; /* Um cinza mais claro para as abas inativas */
     }
 
     /* Métricas com Borda Neon Sutil e Texto Branco */
@@ -162,7 +167,14 @@ st.markdown("""
     .g-legend-title {
         color: var(--text-color) !important;
     }
-
+    
+    /* Melhoria específica para a tabela de direcionadores de valor */
+    .stTable div[role="cell"] {
+        color: var(--text-color);
+    }
+    .stTable thead th {
+        color: var(--header-color);
+    }
 </style>""", unsafe_allow_html=True)
 
 
@@ -1001,7 +1013,6 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     margem_lucro = (hist_lucro_liquido.iloc[-1] / hist_rec_liquida.iloc[-1]) if hist_rec_liquida.iloc[-1] != 0 else 0
     divida_patrimonio_ratio = (divida_total / (market_cap + divida_total - divida_total)) if market_cap > 0 else np.nan
 
-
     return {
         'Empresa': nome_empresa, 
         'Ticker': ticker_sa.replace('.SA', ''), 
@@ -1021,10 +1032,13 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
         'Crescimento Vendas (%)': vendas_cresc_anual * 100,
         'Margem de Lucro (%)': margem_lucro * 100,
         'Dívida/Patrimônio': divida_patrimonio_ratio,
+        'ke': ke, # Adicionado para uso na UI
+        'kd': kd, # Adicionado para uso na UI
         'hist_nopat': hist_nopat, 
         'hist_fco': hist_fco, 
         'hist_roic': (hist_nopat / capital_empregado) * 100, 
         'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)}, "Análise concluída com sucesso."
+
 
 def executar_analise_completa(ticker_map, demonstrativos, market_data, params, progress_bar):
     """Executa a análise de valuation para todas as empresas da lista."""
@@ -1172,8 +1186,8 @@ def ui_valuation():
                         # Outros direcionadores operacionais podem ser adicionados aqui
                     }
                     direcionadores_financiamento = {
-                        "Custo do Capital Próprio (Ke)": f"{ke*100:.2f}%",
-                        "Custo do Capital de Terceiros (Kd)": f"{kd*100:.2f}%",
+                        "Custo do Capital Próprio (Ke)": f"{resultados['ke']*100:.2f}%",
+                        "Custo do Capital de Terceiros (Kd)": f"{resultados['kd']*100:.2f}%",
                         "Estrutura de Capital (Dívida/Patrimônio)": f"{resultados['Dívida/Patrimônio']:.2f}",
                         "Beta (Risco Financeiro)": f"{resultados['Beta']:.2f}",
                     }
@@ -1206,7 +1220,7 @@ def ui_valuation():
             resultados_completos = executar_analise_completa(ticker_cvm_map_df, demonstrativos, market_data, params_ranking, progress_bar)
             
             if resultados_completos:
-                df_final = pd.DataFrame(resultados_completos)
+                df_final = pd.DataFrame(resultados_os.append(resultados)
                 st.success(f"Análise completa! {len(df_final)} de {len(ticker_cvm_map_df)} empresas foram processadas com sucesso.")
                 exibir_rankings(df_final)
             else:
