@@ -36,19 +36,20 @@ st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", pa
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
 <style>
-    /* Paleta de Cores Neon Profissional (Contraste Aprimorado V4) */
+    /* Paleta de Cores Neon Fin Nexus */
     :root {
-        --primary-bg: #0A0A1A; /* Fundo carvão profundo, quase preto */
-        --secondary-bg: #1A1A2E; /* Fundo secundário azul/roxo escuro */
-        --widget-bg: #16213E; /* Fundo dos widgets */
-        --primary-accent: #00F6FF; /* Ciano neon vibrante */
-        --secondary-accent: #E94560; /* Vermelho/rosa neon para contraste */
-        --positive-accent: #00FF87; /* Verde neon */
-        --text-color: #F8F9FA; /* Branco quase puro para melhor legibilidade */
-        --header-color: #FFFFFF; /* Branco puro para títulos e labels importantes */
-        --border-color: #5372F0; /* Borda azul sutil */
-        --tab-active-bg: #323A52; /* Fundo escuro para a aba ativa */
-        --tab-inactive-text: #A0A4B8; /* Cor para texto de abas inativas */
+        --primary-bg: #11112D; /* Fundo principal: roxo escuro quase preto */
+        --secondary-bg: #1B1B3A; /* Fundo secundário: roxo um pouco mais claro */
+        --widget-bg: #27274E; /* Fundo dos widgets/cards */
+        --primary-accent: #00F6FF; /* Ciano/Aqua vibrante */
+        --secondary-accent: #E94560; /* Rosa/vermelho vibrante */
+        --positive-accent: #50FF50; /* Verde neon para valores positivos */
+        --negative-accent: #FF5050; /* Vermelho neon para valores negativos */
+        --text-color: #F0F2F6; /* Branco acinzentado para melhor legibilidade */
+        --header-color: #FFFFFF; /* Branco puro para títulos e valores importantes */
+        --border-color: #3B3B6E; /* Borda sutil de tom roxo */
+        --tab-active-bg: #3B3B6E; /* Fundo da aba ativa */
+        --tab-inactive-text: #B0B0C0; /* Cor para texto de abas inativas */
     }
 
     body {
@@ -63,14 +64,20 @@ st.markdown("""
     
     /* Título com Gradiente Neon */
     h1 {
-        background: -webkit-linear-gradient(45deg, var(--primary-accent), var(--positive-accent));
+        background: linear-gradient(45deg, #FF69B4, #8A2BE2); /* Rosa para Violeta */
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 10px rgba(0, 246, 255, 0.3);
+        text-shadow: 0 0 10px rgba(255, 105, 180, 0.5);
     }
     
     h2, h3 {
         color: var(--header-color);
+    }
+    
+    .stHeadingContainer h1, .stHeadingContainer h2, .stHeadingContainer h3 {
+        background: linear-gradient(45deg, var(--primary-accent), var(--secondary-accent));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
 
     /* Abas com Efeito Neon */
@@ -80,12 +87,12 @@ st.markdown("""
    .stTabs [data-baseweb="tab"] {
         height: 50px;
         background-color: transparent;
-        border-bottom: 2px solid var(--secondary-bg);
+        border-bottom: 2px solid var(--border-color);
         transition: all 0.3s;
-        color: var(--text-color);
+        color: var(--tab-inactive-text);
     }
-    .stTabs [data-baseweb="tab"] > div {
-        color: var(--tab-inactive-text); /* Corrigindo o contraste para as abas inativas */
+    .stTabs [data-baseweb="tab"]:not([aria-selected="true"]) > div {
+        color: var(--tab-inactive-text);
     }
    .stTabs [aria-selected="true"] {
         color: var(--primary-accent);
@@ -93,51 +100,66 @@ st.markdown("""
         box-shadow: 0 2px 15px -5px var(--primary-accent);
         background-color: var(--tab-active-bg);
     }
-
-    /* Métricas com Borda Neon Sutil e Texto Branco */
-   .stMetric {
-        border: 1px solid var(--secondary-bg);
-        border-radius: 8px;
+    
+    /* Containers de métricas e cards com gradiente e borda neon */
+    .stMetric {
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
         padding: 20px;
-        background-color: var(--secondary-bg);
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        background: linear-gradient(145deg, #1A1A2E, #23234F);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s;
     }
-   .stMetric label { /* Rótulo da métrica (ex: "Saldo") */
+    .stMetric:hover {
+        box-shadow: 0 4px 25px rgba(0, 246, 255, 0.2);
+        transform: translateY(-2px);
+    }
+    .stMetric label {
         color: var(--text-color);
+        font-weight: bold;
     }
-   .stMetric > div:nth-child(2) { /* O valor da métrica */
-        color: var(--header-color);
-    }
-   .stMetric > div[data-testid="stMetricValue"] {
+    .stMetric > div[data-testid="stMetricValue"] {
         color: var(--header-color) !important;
-   }
-   .stMetric > div[data-testid="stMetricDelta"] {
-        color: var(--primary-accent) !important;
-   }
+        text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+    }
+    .stMetric > div[data-testid="stMetricDelta"] {
+        color: var(--positive-accent) !important;
+    }
+    .stMetric > div[data-testid="stMetricDelta"]::before {
+        color: var(--positive-accent) !important;
+    }
+    /* Cores de delta para Margem de Segurança */
+    .stMetric > div[data-testid="stMetricDelta"].stMetricDelta-negative::before,
+    .stMetric > div[data-testid="stMetricDelta"].stMetricDelta-negative {
+        color: var(--negative-accent) !important;
+    }
 
     /* Botões com Efeito Neon */
-   .stButton > button {
-        border-radius: 8px;
-        border: 1px solid var(--primary-accent);
-        background-color: transparent;
-        color: var(--primary-accent);
+    .stButton > button {
+        border-radius: 12px;
+        border: none;
+        background: linear-gradient(45deg, #8A2BE2, #FF69B4);
+        color: var(--header-color);
+        font-weight: bold;
         transition: all 0.3s ease-in-out;
-        box-shadow: 0 0 5px var(--primary-accent);
+        box-shadow: 0 0 5px rgba(138, 43, 226, 0.5);
     }
-   .stButton > button:hover {
-        background-color: var(--primary-accent);
-        color: var(--primary-bg);
-        box-shadow: 0 0 20px var(--primary-accent);
+    .stButton > button:hover {
+        background: linear-gradient(45deg, #FF69B4, #8A2BE2);
+        color: var(--header-color);
+        box-shadow: 0 0 20px rgba(255, 105, 180, 0.8);
+        transform: translateY(-2px);
     }
-   .stButton > button:active {
+    .stButton > button:active {
         transform: scale(0.98);
     }
 
     /* Expanders e Formulário com Texto Branco */
     [data-testid="stExpander"] {
-        background-color: var(--secondary-bg);
+        background: linear-gradient(145deg, #1A1A2E, #23234F);
         border: 1px solid var(--border-color);
-        border-radius: 8px;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
     }
     [data-testid="stExpander"] summary, [data-testid="stForm"] label {
         font-size: 1.1em;
@@ -157,16 +179,16 @@ st.markdown("""
     
     /* Legendas dos gráficos e labels de eixos */
     .g-gtitle, .g-xtitle, .g-ytitle, .g-legend-title {
-        fill: var(--text-color) !important; /* Corrigindo a cor dos títulos dos gráficos */
+        fill: var(--text-color) !important;
     }
     .xtick, .ytick {
-        fill: var(--text-color) !important; /* Corrigindo a cor dos eixos */
+        fill: var(--text-color) !important;
     }
     .xtick line, .ytick line {
-        stroke: var(--text-color) !important; /* Corrigindo a cor das linhas dos eixos */
+        stroke: var(--text-color) !important;
     }
     .legendtoggle {
-        fill: var(--text-color) !important; /* Corrigindo a cor das legendas */
+        fill: var(--text-color) !important;
     }
 
     /* Melhoria específica para a tabela de direcionadores de valor */
