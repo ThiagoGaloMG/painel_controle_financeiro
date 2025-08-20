@@ -31,7 +31,7 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA
 # ==============================================================================
-st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="📈")
+st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="�")
 
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
@@ -647,8 +647,13 @@ def inicializar_session_state():
     """Inicializa o estado da sessão para simular um banco de dados."""
     if 'transactions' not in st.session_state:
         st.session_state.transactions = pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'])
+    # Corrigindo as categorias para refletir o comportamento desejado
     if 'categories' not in st.session_state:
-        st.session_state.categories = {'Receita': ['Salário', 'Freelance'], 'Despesa': ['Moradia', 'Alimentação', 'Transporte'], 'Investimento': ['Ações BR', 'FIIs', 'Ações INT', 'Caixa']}
+        st.session_state.categories = {
+            'Receita': ['Salário', 'Freelance'], 
+            'Despesa': ['Moradia', 'Alimentação', 'Transporte', 'Saúde', 'Vestuário'], 
+            'Investimento': ['Ações BR', 'REITs (FII)', 'Caixa', 'Ações Internacionais']
+        }
     if 'goals' not in st.session_state:
         st.session_state.goals = {
             'Reserva de Emergência': {'meta': 10000.0, 'atual': 0.0},
@@ -708,30 +713,22 @@ def ui_controle_financeiro():
                 categoria_final = None
                 sub_arca = None
                 
-                category_placeholder = st.empty()
-
-                if tipo == "Investimento":
-                    with category_placeholder.container():
-                        categoria_selecionada = st.selectbox("Categoria (Metodologia ARCA)", 
-                                                             options=st.session_state.categories['Investimento'], 
-                                                             key="arca_cat")
-                    categoria_final = categoria_selecionada
-                    sub_arca = categoria_selecionada
+                # Lógica corrigida para exibir categorias com base no tipo selecionado
+                opcoes_categoria = st.session_state.categories.get(tipo, []) + ["--- Adicionar Nova Categoria ---"]
+                categoria_selecionada = st.selectbox("Categoria", options=opcoes_categoria, key=f"cat_{tipo}")
+                
+                if categoria_selecionada == "--- Adicionar Nova Categoria ---":
+                    nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
+                    if nova_categoria:
+                        categoria_final = nova_categoria
                 else:
-                    with category_placeholder.container():
-                        label_categoria = "Categoria"
-                        opcoes_categoria = st.session_state.categories[tipo] + ["--- Adicionar Nova Categoria ---"]
-                        categoria_selecionada = st.selectbox(label_categoria, 
-                                                             options=opcoes_categoria, 
-                                                             key=f"cat_{tipo}")
-                        
-                        if categoria_selecionada == "--- Adicionar Nova Categoria ---":
-                            nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
-                            if nova_categoria:
-                                categoria_final = nova_categoria
-                        else:
-                            categoria_final = categoria_selecionada
-
+                    categoria_final = categoria_selecionada
+                
+                if tipo == "Investimento":
+                    sub_arca = categoria_final
+                else:
+                    sub_arca = None
+                
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 descricao = st.text_input("Descrição (opcional)")
                 submitted = st.form_submit_button("Adicionar Lançamento")
@@ -759,7 +756,7 @@ def ui_controle_financeiro():
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
     
-    invest_produtivos = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'].isin(['Ações BR', 'FIIs', 'Ações INT']))]['Valor'].sum()
+    invest_produtivos = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'].isin(['Ações BR', 'REITs (FII)', 'Ações Internacionais']))]['Valor'].sum()
     caixa = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'] == 'Caixa')]['Valor'].sum()
     
     st.session_state.goals['Liberdade Financeira']['atual'] = invest_produtivos
@@ -1396,3 +1393,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+�
