@@ -31,7 +31,7 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA
 # ==============================================================================
-st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="📈")
+st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="�")
 
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
