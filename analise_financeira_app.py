@@ -36,20 +36,19 @@ st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", pa
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
 <style>
-    /* Paleta de Cores Neon Fin Nexus */
+    /* Paleta de Cores Neon Profissional (Contraste Aprimorado V4) */
     :root {
-        --primary-bg: #11112D; /* Fundo principal: roxo escuro quase preto */
-        --secondary-bg: #1B1B3A; /* Fundo secundário: roxo um pouco mais claro */
-        --widget-bg: #27274E; /* Fundo dos widgets/cards */
-        --primary-accent: #00F6FF; /* Ciano/Aqua vibrante */
-        --secondary-accent: #E94560; /* Rosa/vermelho vibrante */
-        --positive-accent: #50FF50; /* Verde neon para valores positivos */
-        --negative-accent: #FF5050; /* Vermelho neon para valores negativos */
-        --text-color: #F0F2F6; /* Branco acinzentado para melhor legibilidade */
-        --header-color: #FFFFFF; /* Branco puro para títulos e valores importantes */
-        --border-color: #3B3B6E; /* Borda sutil de tom roxo */
-        --tab-active-bg: #3B3B6E; /* Fundo da aba ativa */
-        --tab-inactive-text: #B0B0C0; /* Cor para texto de abas inativas */
+        --primary-bg: #0A0A1A; /* Fundo carvão profundo, quase preto */
+        --secondary-bg: #1A1A2E; /* Fundo secundário azul/roxo escuro */
+        --widget-bg: #16213E; /* Fundo dos widgets */
+        --primary-accent: #00F6FF; /* Ciano neon vibrante (mantido) */
+        --secondary-accent: #39FF14; /* Verde neon para contraste */
+        --positive-accent: #00FF87; /* Verde neon (mantido) */
+        --text-color: #F8F9FA; /* Branco quase puro para melhor legibilidade */
+        --header-color: #FFFFFF; /* Branco puro para títulos e labels importantes */
+        --border-color: #5372F0; /* Borda azul sutil */
+        --tab-active-bg: #323A52; /* Fundo escuro para a aba ativa */
+        --tab-inactive-text: #A0A4B8; /* Cor para texto de abas inativas */
     }
 
     body {
@@ -64,20 +63,14 @@ st.markdown("""
     
     /* Título com Gradiente Neon */
     h1 {
-        background: linear-gradient(45deg, #FF69B4, #8A2BE2); /* Rosa para Violeta */
+        background: -webkit-linear-gradient(45deg, var(--primary-accent), var(--positive-accent));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 10px rgba(255, 105, 180, 0.5);
+        text-shadow: 0 0 10px rgba(0, 246, 255, 0.3);
     }
     
     h2, h3 {
         color: var(--header-color);
-    }
-    
-    .stHeadingContainer h1, .stHeadingContainer h2, .stHeadingContainer h3 {
-        background: linear-gradient(45deg, var(--primary-accent), var(--secondary-accent));
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
     }
 
     /* Abas com Efeito Neon */
@@ -87,12 +80,12 @@ st.markdown("""
    .stTabs [data-baseweb="tab"] {
         height: 50px;
         background-color: transparent;
-        border-bottom: 2px solid var(--border-color);
+        border-bottom: 2px solid var(--secondary-bg);
         transition: all 0.3s;
-        color: var(--tab-inactive-text);
+        color: var(--text-color);
     }
-    .stTabs [data-baseweb="tab"]:not([aria-selected="true"]) > div {
-        color: var(--tab-inactive-text);
+    .stTabs [data-baseweb="tab"] > div {
+        color: var(--tab-inactive-text); /* Corrigindo o contraste para as abas inativas */
     }
    .stTabs [aria-selected="true"] {
         color: var(--primary-accent);
@@ -100,66 +93,51 @@ st.markdown("""
         box-shadow: 0 2px 15px -5px var(--primary-accent);
         background-color: var(--tab-active-bg);
     }
-    
-    /* Containers de métricas e cards com gradiente e borda neon */
-    .stMetric {
-        border: 1px solid var(--border-color);
-        border-radius: 12px;
+
+    /* Métricas com Borda Neon Sutil e Texto Branco */
+   .stMetric {
+        border: 1px solid var(--secondary-bg);
+        border-radius: 8px;
         padding: 20px;
-        background: linear-gradient(145deg, #1A1A2E, #23234F);
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-        transition: all 0.3s;
+        background-color: var(--secondary-bg);
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
     }
-    .stMetric:hover {
-        box-shadow: 0 4px 25px rgba(0, 246, 255, 0.2);
-        transform: translateY(-2px);
-    }
-    .stMetric label {
+   .stMetric label { /* Rótulo da métrica (ex: "Saldo") */
         color: var(--text-color);
-        font-weight: bold;
     }
-    .stMetric > div[data-testid="stMetricValue"] {
+   .stMetric > div:nth-child(2) { /* O valor da métrica */
+        color: var(--header-color);
+    }
+   .stMetric > div[data-testid="stMetricValue"] {
         color: var(--header-color) !important;
-        text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
-    }
-    .stMetric > div[data-testid="stMetricDelta"] {
-        color: var(--positive-accent) !important;
-    }
-    .stMetric > div[data-testid="stMetricDelta"]::before {
-        color: var(--positive-accent) !important;
-    }
-    /* Cores de delta para Margem de Segurança */
-    .stMetric > div[data-testid="stMetricDelta"].stMetricDelta-negative::before,
-    .stMetric > div[data-testid="stMetricDelta"].stMetricDelta-negative {
-        color: var(--negative-accent) !important;
-    }
+   }
+   .stMetric > div[data-testid="stMetricDelta"] {
+        color: var(--positive-accent) !important; /* Corrigido para verde neon */
+   }
 
     /* Botões com Efeito Neon */
-    .stButton > button {
-        border-radius: 12px;
-        border: none;
-        background: linear-gradient(45deg, #8A2BE2, #FF69B4);
-        color: var(--header-color);
-        font-weight: bold;
+   .stButton > button {
+        border-radius: 8px;
+        border: 1px solid var(--primary-accent);
+        background-color: transparent;
+        color: var(--primary-accent);
         transition: all 0.3s ease-in-out;
-        box-shadow: 0 0 5px rgba(138, 43, 226, 0.5);
+        box-shadow: 0 0 5px var(--primary-accent);
     }
-    .stButton > button:hover {
-        background: linear-gradient(45deg, #FF69B4, #8A2BE2);
-        color: var(--header-color);
-        box-shadow: 0 0 20px rgba(255, 105, 180, 0.8);
-        transform: translateY(-2px);
+   .stButton > button:hover {
+        background-color: var(--primary-accent);
+        color: var(--primary-bg);
+        box-shadow: 0 0 20px var(--primary-accent);
     }
-    .stButton > button:active {
+   .stButton > button:active {
         transform: scale(0.98);
     }
 
     /* Expanders e Formulário com Texto Branco */
     [data-testid="stExpander"] {
-        background: linear-gradient(145deg, #1A1A2E, #23234F);
+        background-color: var(--secondary-bg);
         border: 1px solid var(--border-color);
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
     }
     [data-testid="stExpander"] summary, [data-testid="stForm"] label {
         font-size: 1.1em;
@@ -179,16 +157,16 @@ st.markdown("""
     
     /* Legendas dos gráficos e labels de eixos */
     .g-gtitle, .g-xtitle, .g-ytitle, .g-legend-title {
-        fill: var(--text-color) !important;
+        fill: var(--text-color) !important; /* Corrigindo a cor dos títulos dos gráficos */
     }
     .xtick, .ytick {
-        fill: var(--text-color) !important;
+        fill: var(--text-color) !important; /* Corrigindo a cor dos eixos */
     }
     .xtick line, .ytick line {
-        stroke: var(--text-color) !important;
+        stroke: var(--text-color) !important; /* Corrigindo a cor das linhas dos eixos */
     }
     .legendtoggle {
-        fill: var(--text-color) !important;
+        fill: var(--text-color) !important; /* Corrigindo a cor das legendas */
     }
 
     /* Melhoria específica para a tabela de direcionadores de valor */
@@ -776,13 +754,10 @@ def ui_controle_financeiro():
 
     st.subheader("Análise Histórica")
     if not df_trans.empty:
-        # CONVERSÃO DE DATA ÚNICA: Garante que o tipo de dado é datetime
-        df_trans['Data'] = pd.to_datetime(df_trans['Data'])
-        
-        # Gráfico ARCA - Corrigido para usar o DataFrame completo e não os filtros de data
+        # Gráfico ARCA
         df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
         if not df_arca.empty:
-            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", hole=.3, template="plotly_dark")
+            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", hole=.3, template="plotly_dark", color_discrete_sequence=['#00F6FF', '#00FF87', '#5372F0', '#A0A4B8'])
             fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             fig_arca.update_traces(textinfo='percent+label')
             st.plotly_chart(fig_arca, use_container_width=True)
@@ -826,7 +801,7 @@ def ui_controle_financeiro():
         col1, col2 = st.columns(2)
         with col1:
             df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
-            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark")
+            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark", color_discrete_sequence=['#00F6FF', '#E94560', '#00FF87'])
             fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
