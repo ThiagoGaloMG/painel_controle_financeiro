@@ -15,7 +15,7 @@ import pandas as pd
 import yfinance as yf
 import requests
 from zipfile import ZipFile
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 import warnings
 import numpy as np
@@ -36,7 +36,7 @@ st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", pa
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
 <style>
-    /* Paleta de Cores Neon Profissional (Contraste Aprimorado V3) */
+    /* Paleta de Cores Neon Profissional (Contraste Aprimorado V4) */
     :root {
         --primary-bg: #0A0A1A; /* Fundo carvão profundo, quase preto */
         --secondary-bg: #1A1A2E; /* Fundo secundário azul/roxo escuro */
@@ -48,6 +48,7 @@ st.markdown("""
         --header-color: #FFFFFF; /* Branco puro para títulos e labels importantes */
         --border-color: #5372F0; /* Borda azul sutil */
         --tab-active-bg: #323A52; /* Fundo escuro para a aba ativa */
+        --tab-inactive-text: #A0A4B8; /* Cor para texto de abas inativas */
     }
 
     body {
@@ -83,14 +84,14 @@ st.markdown("""
         transition: all 0.3s;
         color: var(--text-color);
     }
+    .stTabs [data-baseweb="tab"] > div {
+        color: var(--tab-inactive-text); /* Corrigindo o contraste para as abas inativas */
+    }
    .stTabs [aria-selected="true"] {
         color: var(--primary-accent);
         border-bottom: 2px solid var(--primary-accent);
         box-shadow: 0 2px 15px -5px var(--primary-accent);
         background-color: var(--tab-active-bg);
-    }
-    .stTabs [data-baseweb="tab"]:not([aria-selected="true"]) > div {
-        color: #A0A4B8; /* Um cinza mais claro para as abas inativas */
     }
 
     /* Métricas com Borda Neon Sutil e Texto Branco */
@@ -155,19 +156,19 @@ st.markdown("""
     }
     
     /* Legendas dos gráficos e labels de eixos */
-    .modebar-container {
-        color: var(--text-color) !important;
+    .g-gtitle, .g-xtitle, .g-ytitle, .g-legend-title {
+        fill: var(--text-color) !important; /* Corrigindo a cor dos títulos dos gráficos */
     }
-    .xtick, .ytick, .legendtoggle {
-        color: var(--text-color) !important;
+    .xtick, .ytick {
+        fill: var(--text-color) !important; /* Corrigindo a cor dos eixos */
     }
-    .g-gtitle, .g-xtitle, .g-ytitle {
-        color: var(--text-color) !important;
+    .xtick line, .ytick line {
+        stroke: var(--text-color) !important; /* Corrigindo a cor das linhas dos eixos */
     }
-    .g-legend-title {
-        color: var(--text-color) !important;
+    .legendtoggle {
+        fill: var(--text-color) !important; /* Corrigindo a cor das legendas */
     }
-    
+
     /* Melhoria específica para a tabela de direcionadores de valor */
     .stTable div[role="cell"] {
         color: var(--text-color);
@@ -660,9 +661,9 @@ def ui_controle_financeiro():
     
     col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
 
-    # Adiciona filtros de data e tipo
-    data_inicio = col_filter1.date_input("Data de Início", value=datetime.now() - pd.Timedelta(days=365))
-    data_fim = col_filter2.date_input("Data de Fim", value=datetime.now())
+    # Adiciona filtros de data e tipo com formatação DD/MM/AAAA
+    data_inicio = col_filter1.date_input("Data de Início", value=datetime.now() - pd.Timedelta(days=365), format="DD/MM/YYYY")
+    data_fim = col_filter2.date_input("Data de Fim", value=datetime.now(), format="DD/MM/YYYY")
     tipo_filtro = col_filter3.selectbox("Filtrar por Tipo", ["Todos", "Receita", "Despesa", "Investimento"])
 
     st.divider()
@@ -696,12 +697,12 @@ def ui_controle_financeiro():
     
     st.divider()
 
-    # Lógica de input de dados (permanece a mesma)
+    # Lógica de input de dados
     col1, col2 = st.columns(2)
     with col1:
         with st.expander("➕ Novo Lançamento", expanded=True):
             with st.form("new_transaction_form", clear_on_submit=True):
-                data = st.date_input("Data", datetime.now())
+                data = st.date_input("Data", datetime.now(), format="DD/MM/YYYY")
                 tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
                 
                 categoria_final = None
@@ -956,14 +957,18 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     hist_capital_empregado = hist_ncg.add(hist_ativo_imobilizado, fill_value=0).add(hist_ativo_intangivel, fill_value=0)
     
     # Garantir que as séries tenham o mesmo índice (anos)
-    df_series = pd.concat([hist_nopat, hist_fco, hist_capital_empregado, hist_divida_cp, hist_divida_lp, hist_desp_financeira, hist_pl_total], axis=1).dropna()
-    df_series.columns = ['NOPAT', 'FCO', 'Capital Empregado', 'Divida CP', 'Divida LP', 'Despesas Financeiras', 'PL']
+    df_series = pd.concat([hist_nopat, hist_fco, hist_capital_empregado, hist_divida_cp, hist_divida_lp, hist_desp_financeira, hist_pl_total, hist_rec_liquida, hist_lucro_liquido, hist_contas_a_receber, hist_estoques, hist_fornecedores], axis=1).dropna()
+    df_series.columns = ['NOPAT', 'FCO', 'Capital Empregado', 'Divida CP', 'Divida LP', 'Despesas Financeiras', 'PL', 'Receita Liquida', 'Lucro Liquido', 'Contas a Receber', 'Estoques', 'Fornecedores']
 
     if df_series.empty:
         return None, "Séries históricas incompletas para os cálculos anuais."
-
+    
+    # Cálculo de métricas históricas
+    hist_divida_total = df_series['Divida CP'] + df_series['Divida LP']
+    hist_roic = (df_series['NOPAT'] / df_series['Capital Empregado'])
+    
     # Cálculo do Beta e WACC (para fins de exibição e cálculo de perp.)
-    divida_total_ultimo_ano = df_series['Divida CP'].iloc[-1] + df_series['Divida LP'].iloc[-1]
+    divida_total_ultimo_ano = hist_divida_total.iloc[-1]
     
     beta_hamada = calcular_beta_hamada(ticker_sa, ibov_data, params['periodo_beta_ibov'], aliquota_efetiva, divida_total_ultimo_ano, market_cap)
     ke = risk_free_rate + beta_hamada * premio_risco_mercado
@@ -973,8 +978,6 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if wacc_medio <= params['taxa_crescimento_perpetuidade'] or pd.isna(wacc_medio):
         return None, "WACC inválido ou menor/igual à taxa de crescimento na perpetuidade. Ajuste os parâmetros."
 
-    # Séries históricas das métricas de valor
-    hist_roic = (df_series['NOPAT'] / df_series['Capital Empregado'])
     hist_wacc = pd.Series([wacc_medio] * len(df_series.index), index=df_series.index) # WACC é considerado constante no histórico
     
     hist_eva = (hist_roic - hist_wacc) * df_series['Capital Empregado']
@@ -985,11 +988,11 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     efv_ultimo = riqueza_futura_esperada_ultimo - hist_riqueza_atual.iloc[-1]
 
     # Criação das séries históricas PERCENTUAIS
-    hist_riqueza_futura_percentual = (hist_riqueza_atual.index.map(lambda x: riqueza_futura_esperada_ultimo) / df_series['Capital Empregado']) * 100
+    hist_riqueza_futura_percentual = ((pd.Series([riqueza_futura_esperada_ultimo] * len(df_series.index), index=df_series.index) / df_series['Capital Empregado']) - 1) * 100
     hist_riqueza_atual_percentual = (hist_riqueza_atual / df_series['Capital Empregado']) * 100
     hist_efv_percentual = (hist_riqueza_futura_percentual - hist_riqueza_atual_percentual)
     hist_eva_percentual = (hist_eva / df_series['Capital Empregado']) * 100
-
+    
     # Dicionário de resultados para o último ano (para exibição principal)
     resultados = {
         'Empresa': nome_empresa, 
@@ -1007,12 +1010,12 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
         'Spread (ROIC-WACC %)': (hist_roic.iloc[-1] - hist_wacc.iloc[-1]) * 100, 
         'EVA (R$)': hist_eva.iloc[-1], 
         'EFV (R$)': efv_ultimo,
-        'Crescimento Vendas (%)': hist_rec_liquida.pct_change().iloc[-1] * 100 if len(hist_rec_liquida) > 1 else 0,
-        'Margem de Lucro (%)': (hist_lucro_liquido.iloc[-1] / hist_rec_liquida.iloc[-1]) * 100 if hist_rec_liquida.iloc[-1] != 0 else 0,
+        'Crescimento Vendas (%)': df_series['Receita Liquida'].pct_change().iloc[-1] * 100 if len(df_series['Receita Liquida']) > 1 else 0,
+        'Margem de Lucro (%)': (df_series['Lucro Liquido'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 100 if df_series['Receita Liquida'].iloc[-1] != 0 else 0,
         'Dívida/Patrimônio': divida_total_ultimo_ano / df_series['PL'].iloc[-1] if df_series['PL'].iloc[-1] > 0 else np.nan,
-        'Prazo Cobrança (dias)': (hist_contas_a_receber.iloc[-1] / hist_rec_liquida.iloc[-1]) * 365 if hist_rec_liquida.iloc[-1] != 0 else np.nan,
-        'Prazo Pagamento (dias)': (hist_fornecedores.iloc[-1] / (hist_ebit.iloc[-1] + hist_dep_amort.iloc[-1] - hist_lucro_liquido.iloc[-1])) * 365 if (hist_ebit.iloc[-1] + hist_dep_amort.iloc[-1] - hist_lucro_liquido.iloc[-1]) != 0 else np.nan,
-        'Giro Estoques (vezes)': hist_rec_liquida.iloc[-1] / hist_estoques.iloc[-1] if hist_estoques.iloc[-1] != 0 else np.nan,
+        'Prazo Cobrança (dias)': (df_series['Contas a Receber'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 365 if df_series['Receita Liquida'].iloc[-1] != 0 else np.nan,
+        'Prazo Pagamento (dias)': (df_series['Fornecedores'].iloc[-1] / (df_series['EBIT'].iloc[-1] + hist_dep_amort.iloc[-1] - df_series['Lucro Liquido'].iloc[-1])) * 365 if (df_series['EBIT'].iloc[-1] + hist_dep_amort.iloc[-1] - df_series['Lucro Liquido'].iloc[-1]) != 0 else np.nan,
+        'Giro Estoques (vezes)': df_series['Receita Liquida'].iloc[-1] / df_series['Estoques'].iloc[-1] if df_series['Estoques'].iloc[-1] != 0 else np.nan,
         'ke': ke, 
         'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
         # Séries históricas para os gráficos
@@ -1193,7 +1196,7 @@ def ui_valuation():
                     st.plotly_chart(fig_evolucao, use_container_width=True)
 
 
-                with st.expander("🔢 Detalhes e Direcionadores de Valor", expanded=False):
+                with st.expander("🔢 Detalhes e Direcionadores de Valor", expanded=True):
                     st.subheader("Direcionadores de Valor")
                     
                     # Tabela com Direcionadores de Valor
