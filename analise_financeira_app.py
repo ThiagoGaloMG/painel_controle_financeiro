@@ -216,7 +216,6 @@ def setup_diretorios():
         CONFIG["DIRETORIO_DADOS_EXTRAIDOS"].mkdir(parents=True, exist_ok=True)
         return True
     except Exception as e:
-        # st.error(f"Erro ao criar diretórios locais. Verifique as permissões. Erro: {e}")
         # A nova lógica não precisa de arquivos locais, então este erro pode ser suprimido
         return False
 
@@ -771,7 +770,7 @@ def ui_controle_financeiro():
         df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
         if not df_arca.empty:
             fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos", hole=.3, template="plotly_dark")
-            fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
+            fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--text-color)')
             fig_arca.update_traces(textinfo='percent+label')
             st.plotly_chart(fig_arca, use_container_width=True)
         else:
@@ -801,12 +800,12 @@ def ui_controle_financeiro():
         col1, col2 = st.columns(2)
         with col1:
             fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark")
-            fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
+            fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--text-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
             df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
             fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
-            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='#ECEDEE', title_font_color='#ECEDEE')
+            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--text-color)')
             st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
@@ -884,6 +883,7 @@ def calcular_beta_hamada(ticker, ibov_data, periodo_beta, imposto, divida_total,
 def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params):
     """
     Executa a análise de valuation de uma única empresa, calculando EVA, EFV, WACC, etc.
+    Calcula as métricas de forma histórica para a visualização da evolução.
 
     Args:
         ticker_sa (str): Ticker da empresa no formato 'ABCD3.SA'.
@@ -926,118 +926,107 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
         
     C = CONFIG['CONTAS_CVM']
     
-    # Extração de dados da CVM
+    # Extração de dados da CVM para séries históricas
     hist_ebit = obter_historico_metrica(empresa_dre, C['EBIT'])
     hist_impostos = obter_historico_metrica(empresa_dre, C['IMPOSTO_DE_RENDA_CSLL'])
     hist_lai = obter_historico_metrica(empresa_dre, C['LUCRO_ANTES_IMPOSTOS'])
     hist_rec_liquida = obter_historico_metrica(empresa_dre, C['RECEITA_LIQUIDA'])
     hist_lucro_liquido = obter_historico_metrica(empresa_dre, C['LUCRO_LIQUIDO'])
-
+    hist_contas_a_receber = obter_historico_metrica(empresa_bpa, C['CONTAS_A_RECEBER'])
+    hist_estoques = obter_historico_metrica(empresa_bpa, C['ESTOQUES'])
+    hist_fornecedores = obter_historico_metrica(empresa_bpp, C['FORNECEDORES'])
+    hist_ativo_imobilizado = obter_historico_metrica(empresa_bpa, C['ATIVO_IMOBILIZADO'])
+    hist_ativo_intangivel = obter_historico_metrica(empresa_bpa, C['ATIVO_INTANGIVEL'])
+    hist_divida_cp = obter_historico_metrica(empresa_bpp, C['DIVIDA_CURTO_PRAZO'])
+    hist_divida_lp = obter_historico_metrica(empresa_bpp, C['DIVIDA_LONGO_PRAZO'])
+    hist_desp_financeira = abs(obter_historico_metrica(empresa_dre, C['DESPESAS_FINANCEIRAS']))
+    hist_pl_total = obter_historico_metrica(empresa_bpp, C['PATRIMONIO_LIQUIDO'])
+    hist_dep_amort = obter_historico_metrica(empresa_dfc, C['DEPRECIACAO_AMORTIZACAO'])
+    
     if hist_lai.sum() == 0 or hist_ebit.empty:
         return None, "Dados de Lucro/EBIT insuficientes para calcular a alíquota de imposto."
-        
+
+    # Cálculo da alíquota efetiva (média)
     aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum()) if hist_lai.sum() != 0 else 0
+    
+    # Cálculo das séries históricas
     hist_nopat = hist_ebit * (1 - aliquota_efetiva)
-    hist_dep_amort = obter_historico_metrica(empresa_dfc, C['DEPRECIACAO_AMORTIZACAO'])
     hist_fco = hist_nopat.add(hist_dep_amort, fill_value=0)
+    hist_ncg = hist_contas_a_receber.add(hist_estoques, fill_value=0).subtract(hist_fornecedores, fill_value=0)
+    hist_capital_empregado = hist_ncg.add(hist_ativo_imobilizado, fill_value=0).add(hist_ativo_intangivel, fill_value=0)
     
-    try:
-        contas_a_receber = obter_historico_metrica(empresa_bpa, C['CONTAS_A_RECEBER']).iloc[-1]
-        estoques = obter_historico_metrica(empresa_bpa, C['ESTOQUES']).iloc[-1]
-        fornecedores = obter_historico_metrica(empresa_bpp, C['FORNECEDORES']).iloc[-1]
-        ativo_imobilizado = obter_historico_metrica(empresa_bpa, C['ATIVO_IMOBILIZADO']).iloc[-1]
-        ativo_intangivel = obter_historico_metrica(empresa_bpa, C['ATIVO_INTANGIVEL']).iloc[-1]
-        divida_cp = obter_historico_metrica(empresa_bpp, C['DIVIDA_CURTO_PRAZO']).iloc[-1]
-        divida_lp = obter_historico_metrica(empresa_bpp, C['DIVIDA_LONGO_PRAZO']).iloc[-1]
-        desp_financeira = abs(obter_historico_metrica(empresa_dre, C['DESPESAS_FINANCEIRAS']).iloc[-1])
-    except IndexError:
-        return None, "Dados de balanço patrimonial ausentes ou incompletos."
+    # Garantir que as séries tenham o mesmo índice (anos)
+    df_series = pd.concat([hist_nopat, hist_fco, hist_capital_empregado, hist_divida_cp, hist_divida_lp, hist_desp_financeira, hist_pl_total], axis=1).dropna()
+    df_series.columns = ['NOPAT', 'FCO', 'Capital Empregado', 'Divida CP', 'Divida LP', 'Despesas Financeiras', 'PL']
 
-    # Cálculo dos indicadores-chave
-    ncg = contas_a_receber + estoques - fornecedores
-    capital_empregado = ncg + ativo_imobilizado + ativo_intangivel
-    
-    if capital_empregado <= 0:
-        return None, "Capital empregado negativo ou nulo."
+    if df_series.empty:
+        return None, "Séries históricas incompletas para os cálculos anuais."
 
-    nopat_medio = hist_nopat.tail(params['media_anos_calculo']).mean()
-    fco_medio = hist_fco.tail(params['media_anos_calculo']).mean()
+    # Cálculo do Beta e WACC (para fins de exibição e cálculo de perp.)
+    divida_total_ultimo_ano = df_series['Divida CP'].iloc[-1] + df_series['Divida LP'].iloc[-1]
     
-    if pd.isna(nopat_medio) or pd.isna(fco_medio):
-        return None, "Não foi possível calcular NOPAT ou FCO médio."
-    
-    roic = nopat_medio / capital_empregado
-    divida_total = divida_cp + divida_lp
-    
-    # Ke: Custo do Capital Próprio
-    # Kd: Custo do Capital de Terceiros
-    kd = (desp_financeira / divida_total) if divida_total > 0 else 0.0
-    kd_liquido = kd * (1 - aliquota_efetiva)
-    
-    # Novo cálculo de Beta usando o modelo de Hamada conforme o TCC
-    # Nota: A implementação ideal do modelo de Hamada exige o Beta desalavancado médio do setor.
-    # Esta implementação utiliza o Beta alavancado da própria empresa para desalavancar e realavancar.
-    beta_hamada = calcular_beta_hamada(ticker_sa, ibov_data, params['periodo_beta_ibov'], aliquota_efetiva, divida_total, market_cap)
-    
+    beta_hamada = calcular_beta_hamada(ticker_sa, ibov_data, params['periodo_beta_ibov'], aliquota_efetiva, divida_total_ultimo_ano, market_cap)
     ke = risk_free_rate + beta_hamada * premio_risco_mercado
+    ev_mercado = market_cap + divida_total_ultimo_ano
+    wacc_medio = ((market_cap / ev_mercado) * ke) + ((divida_total_ultimo_ano / ev_mercado) * (df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano) * (1 - aliquota_efetiva)) if ev_mercado > 0 and divida_total_ultimo_ano > 0 else ke
     
-    # WACC: Custo Médio Ponderado de Capital
-    ev_mercado = market_cap + divida_total
-    wacc = ((market_cap / ev_mercado) * ke) + ((divida_total / ev_mercado) * kd_liquido) if ev_mercado > 0 else ke
-    
-    g = params['taxa_crescimento_perpetuidade']
-    
-    if wacc <= g or pd.isna(wacc):
+    if wacc_medio <= params['taxa_crescimento_perpetuidade'] or pd.isna(wacc_medio):
         return None, "WACC inválido ou menor/igual à taxa de crescimento na perpetuidade. Ajuste os parâmetros."
 
-    # Cálculo do EVA e EFV conforme TCC
-    eva = (roic - wacc) * capital_empregado
-    riqueza_atual = (eva / wacc) if wacc > 0 else 0.0
-    riqueza_futura_esperada = ev_mercado - capital_empregado
-    efv = riqueza_futura_esperada - riqueza_atual
+    # Séries históricas das métricas de valor
+    hist_roic = (df_series['NOPAT'] / df_series['Capital Empregado'])
+    hist_wacc = pd.Series([wacc_medio] * len(df_series.index), index=df_series.index) # WACC é considerado constante no histórico
     
-    # Fluxo de Caixa Descontado (DCF) - Valor Residual
-    valor_residual = (fco_medio * (1 + g)) / (wacc - g)
-    equity_value = valor_residual - divida_total
+    hist_eva = (hist_roic - hist_wacc) * df_series['Capital Empregado']
+    hist_riqueza_atual = hist_eva / hist_wacc
     
-    # Se o valor intrínseco (equity_value) for negativo ou zero, o preço justo é zero.
-    if equity_value <= 0 or n_acoes == 0:
-        preco_justo = 0.00
-        margem_seguranca = -100.0
-    else:
-        preco_justo = equity_value / n_acoes
-        margem_seguranca = (preco_justo / preco_atual) - 1 if preco_atual > 0 else 0
-        
-    # Novos cálculos de direcionadores de valor
-    vendas_cresc_anual = hist_rec_liquida.pct_change().iloc[-1] if len(hist_rec_liquida) > 1 else 0
-    margem_lucro = (hist_lucro_liquido.iloc[-1] / hist_rec_liquida.iloc[-1]) if hist_rec_liquida.iloc[-1] != 0 else 0
-    divida_patrimonio_ratio = (divida_total / (market_cap + divida_total - divida_total)) if market_cap > 0 else np.nan
+    # Para Riqueza Futura e EFV, usamos a premissa de que o Market Cap está no último ano
+    riqueza_futura_esperada_ultimo = market_cap + divida_total_ultimo_ano - df_series['Capital Empregado'].iloc[-1]
+    efv_ultimo = riqueza_futura_esperada_ultimo - hist_riqueza_atual.iloc[-1]
 
-    return {
+    # Criação das séries históricas PERCENTUAIS
+    hist_riqueza_futura_percentual = (hist_riqueza_atual.index.map(lambda x: riqueza_futura_esperada_ultimo) / df_series['Capital Empregado']) * 100
+    hist_riqueza_atual_percentual = (hist_riqueza_atual / df_series['Capital Empregado']) * 100
+    hist_efv_percentual = (hist_riqueza_futura_percentual - hist_riqueza_atual_percentual)
+    hist_eva_percentual = (hist_eva / df_series['Capital Empregado']) * 100
+
+    # Dicionário de resultados para o último ano (para exibição principal)
+    resultados = {
         'Empresa': nome_empresa, 
         'Ticker': ticker_sa.replace('.SA', ''), 
         'Preço Atual (R$)': preco_atual, 
-        'Preço Justo (R$)': preco_justo, 
-        'Margem Segurança (%)': margem_seguranca * 100, 
+        'Preço Justo (R$)': (riqueza_futura_esperada_ultimo + df_series['Capital Empregado'].iloc[-1] - divida_total_ultimo_ano) / n_acoes if n_acoes > 0 else 0, 
+        'Margem Segurança (%)': ((riqueza_futura_esperada_ultimo + df_series['Capital Empregado'].iloc[-1] - divida_total_ultimo_ano) / n_acoes / preco_atual - 1) * 100 if n_acoes > 0 and preco_atual > 0 else -100, 
         'Market Cap (R$)': market_cap, 
-        'Capital Empregado (R$)': capital_empregado, 
-        'Dívida Total (R$)': divida_total, 
-        'NOPAT Médio (R$)': nopat_medio, 
-        'ROIC (%)': roic * 100, 
+        'Capital Empregado (R$)': df_series['Capital Empregado'].iloc[-1], 
+        'Dívida Total (R$)': divida_total_ultimo_ano, 
+        'NOPAT Médio (R$)': df_series['NOPAT'].tail(params['media_anos_calculo']).mean(), 
+        'ROIC (%)': hist_roic.iloc[-1] * 100, 
         'Beta': beta_hamada, 
-        'Custo do Capital (WACC %)': wacc * 100, 
-        'Spread (ROIC-WACC %)': (roic - wacc) * 100, 
-        'EVA (R$)': eva, 
-        'EFV (R$)': efv,
-        'Crescimento Vendas (%)': vendas_cresc_anual * 100,
-        'Margem de Lucro (%)': margem_lucro * 100,
-        'Dívida/Patrimônio': divida_patrimonio_ratio,
-        'ke': ke, # Adicionado para uso na UI
-        'kd': kd, # Adicionado para uso na UI
+        'Custo do Capital (WACC %)': wacc_medio * 100, 
+        'Spread (ROIC-WACC %)': (hist_roic.iloc[-1] - hist_wacc.iloc[-1]) * 100, 
+        'EVA (R$)': hist_eva.iloc[-1], 
+        'EFV (R$)': efv_ultimo,
+        'Crescimento Vendas (%)': hist_rec_liquida.pct_change().iloc[-1] * 100 if len(hist_rec_liquida) > 1 else 0,
+        'Margem de Lucro (%)': (hist_lucro_liquido.iloc[-1] / hist_rec_liquida.iloc[-1]) * 100 if hist_rec_liquida.iloc[-1] != 0 else 0,
+        'Dívida/Patrimônio': divida_total_ultimo_ano / df_series['PL'].iloc[-1] if df_series['PL'].iloc[-1] > 0 else np.nan,
+        'Prazo Cobrança (dias)': (hist_contas_a_receber.iloc[-1] / hist_rec_liquida.iloc[-1]) * 365 if hist_rec_liquida.iloc[-1] != 0 else np.nan,
+        'Prazo Pagamento (dias)': (hist_fornecedores.iloc[-1] / (hist_ebit.iloc[-1] + hist_dep_amort.iloc[-1] - hist_lucro_liquido.iloc[-1])) * 365 if (hist_ebit.iloc[-1] + hist_dep_amort.iloc[-1] - hist_lucro_liquido.iloc[-1]) != 0 else np.nan,
+        'Giro Estoques (vezes)': hist_rec_liquida.iloc[-1] / hist_estoques.iloc[-1] if hist_estoques.iloc[-1] != 0 else np.nan,
+        'ke': ke, 
+        'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
+        # Séries históricas para os gráficos
         'hist_nopat': hist_nopat, 
-        'hist_fco': hist_fco, 
-        'hist_roic': (hist_nopat / capital_empregado) * 100, 
-        'wacc_series': pd.Series([wacc * 100] * len(hist_nopat.index), index=hist_nopat.index)}, "Análise concluída com sucesso."
+        'hist_fco': hist_fco,
+        'hist_roic': hist_roic * 100,
+        'wacc_series': hist_wacc * 100,
+        'hist_riqueza_futura_percentual': hist_riqueza_futura_percentual,
+        'hist_riqueza_atual_percentual': hist_riqueza_atual_percentual,
+        'hist_efv_percentual': hist_efv_percentual,
+        'hist_eva_percentual': hist_eva_percentual
+    }
+    
+    return resultados, "Análise concluída com sucesso."
 
 
 def executar_analise_completa(ticker_map, demonstrativos, market_data, params, progress_bar):
@@ -1151,7 +1140,7 @@ def ui_valuation():
                 st.divider()
 
                 with st.expander("📊 Gráficos de Histórico e Indicadores", expanded=True):
-                    # Gráfico interativo de NOPAT e FCO
+                    # Gráfico de NOPAT e FCO
                     df_nopat_fco = pd.DataFrame({
                         'NOPAT': resultados['hist_nopat'],
                         'FCO': resultados['hist_fco']
@@ -1160,12 +1149,12 @@ def ui_valuation():
                     fig_nopat_fco = go.Figure()
                     fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco['NOPAT'], name='NOPAT', marker_color='#00F6FF'))
                     fig_nopat_fco.add_trace(go.Bar(x=df_nopat_fco['Ano'], y=df_nopat_fco['FCO'], name='FCO', marker_color='#E94560'))
-                    fig_nopat_fco.update_layout(title='Histórico de NOPAT e FCO', barmode='group', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
+                    fig_nopat_fco.update_layout(title='Histórico de NOPAT e FCO', barmode='group', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='var(--text-color)'))
                     st.plotly_chart(fig_nopat_fco, use_container_width=True)
 
                     st.divider()
                     
-                    # Gráfico interativo de ROIC vs WACC
+                    # Gráfico de ROIC vs WACC
                     df_roic_wacc = pd.DataFrame({
                         'ROIC': resultados['hist_roic'],
                         'WACC': resultados['wacc_series']
@@ -1174,16 +1163,46 @@ def ui_valuation():
                     fig_roic_wacc = go.Figure()
                     fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc['ROIC'], mode='lines+markers', name='ROIC (%)', line=dict(color='#00FF87', width=3)))
                     fig_roic_wacc.add_trace(go.Scatter(x=df_roic_wacc['Ano'], y=df_roic_wacc['WACC'], mode='lines+markers', name='WACC (%)', line=dict(color='#E94560', width=3)))
-                    fig_roic_wacc.update_layout(title='ROIC vs WACC (Indicadores de Criação de Valor)', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#E0E0E0'))
+                    fig_roic_wacc.update_layout(title='ROIC vs WACC (Indicadores de Criação de Valor)', template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='var(--text-color)'))
                     st.plotly_chart(fig_roic_wacc, use_container_width=True)
-                
+
+                    st.divider()
+
+                    # Novo Gráfico de Evolução de Riqueza e EVA/EFV
+                    df_evolucao = pd.DataFrame({
+                        'Riqueza Futura %': resultados['hist_riqueza_futura_percentual'],
+                        'Riqueza Atual %': resultados['hist_riqueza_atual_percentual'],
+                        'EFV %': resultados['hist_efv_percentual'],
+                        'EVA %': resultados['hist_eva_percentual']
+                    }).reset_index(names=['Ano'])
+                    
+                    fig_evolucao = go.Figure()
+                    fig_evolucao.add_trace(go.Scatter(x=df_evolucao['Ano'], y=df_evolucao['Riqueza Futura %'], mode='lines+markers', name='Riqueza Futura %', line=dict(color='red', width=3)))
+                    fig_evolucao.add_trace(go.Scatter(x=df_evolucao['Ano'], y=df_evolucao['Riqueza Atual %'], mode='lines+markers', name='Riqueza Atual %', line=dict(color='green', width=3)))
+                    fig_evolucao.add_trace(go.Scatter(x=df_evolucao['Ano'], y=df_evolucao['EFV %'], mode='lines+markers', name='EFV %', line=dict(color='blue', dash='dash', width=2)))
+                    fig_evolucao.add_trace(go.Scatter(x=df_evolucao['Ano'], y=df_evolucao['EVA %'], mode='lines+markers', name='EVA %', line=dict(color='cyan', dash='dash', width=2)))
+                    
+                    fig_evolucao.update_layout(
+                        title='Evolução da Riqueza, EFV e EVA na empresa Y', 
+                        template="plotly_dark", 
+                        paper_bgcolor='rgba(0,0,0,0)', 
+                        plot_bgcolor='rgba(0,0,0,0)', 
+                        font=dict(color='var(--text-color)'),
+                        yaxis_title='Valores em Percentual (%)'
+                    )
+                    st.plotly_chart(fig_evolucao, use_container_width=True)
+
+
                 with st.expander("🔢 Detalhes e Direcionadores de Valor", expanded=False):
                     st.subheader("Direcionadores de Valor")
+                    
                     # Tabela com Direcionadores de Valor
                     direcionadores_operacionais = {
                         "Crescimento das Vendas (último ano)": f"{resultados['Crescimento Vendas (%)']:.2f}%",
                         "Margem de Lucro (último ano)": f"{resultados['Margem de Lucro (%)']:.2f}%",
-                        # Outros direcionadores operacionais podem ser adicionados aqui
+                        "Prazo de Cobrança": f"{resultados['Prazo Cobrança (dias)']:.0f} dias",
+                        "Prazo de Pagamento": f"{resultados['Prazo Pagamento (dias)']:.0f} dias",
+                        "Giro dos Estoques": f"{resultados['Giro Estoques (vezes)']:.2f}x",
                     }
                     direcionadores_financiamento = {
                         "Custo do Capital Próprio (Ke)": f"{resultados['ke']*100:.2f}%",
@@ -1195,9 +1214,12 @@ def ui_valuation():
                         "ROIC": f"{resultados['ROIC (%)']:.2f}%",
                         "Capital Empregado": f"R$ {resultados['Capital Empregado (R$)']:.2f}",
                         "EVA": f"R$ {resultados['EVA (R$)']:.2f}",
+                        "EFV": f"R$ {resultados['EFV (R$)']:.2f}",
+                        "Riqueza Atual": f"R$ {resultados['EVA (R$)'] / (resultados['wacc_series'].iloc[-1]/100):.2f}" if (resultados['wacc_series'].iloc[-1]/100) > 0 else "N/A"
                     }
-
+                    
                     col_op, col_fin, col_inv = st.columns(3)
+                    
                     with col_op:
                         st.markdown("**Estratégias Operacionais**")
                         st.table(pd.DataFrame.from_dict(direcionadores_operacionais, orient='index', columns=['Valor']))
