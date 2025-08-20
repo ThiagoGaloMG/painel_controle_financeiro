@@ -675,7 +675,6 @@ def ui_controle_financeiro():
 
     df_trans = st.session_state.transactions.copy()
     if not df_trans.empty:
-        # CONVERSÃO DE DATA CORRIGIDA: A conversão agora é feita logo após a cópia.
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
         
         # Aplica os filtros de data e tipo
@@ -757,6 +756,18 @@ def ui_controle_financeiro():
     if not df_trans.empty:
         # CONVERSÃO DE DATA ÚNICA: Garante que o tipo de dado é datetime
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+        
+        # Gráfico ARCA - Corrigido para usar o DataFrame completo e não os filtros de data
+        df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
+        if not df_arca.empty:
+            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", hole=.3, template="plotly_dark")
+            fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+            fig_arca.update_traces(textinfo='percent+label')
+            st.plotly_chart(fig_arca, use_container_width=True)
+        else:
+            st.info("Nenhum investimento ARCA registrado.")
+            
+        st.divider()
         
         # Filtra os dados de investimento para o período selecionado
         df_investimento_filtrado = df_trans[
