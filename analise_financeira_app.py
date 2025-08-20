@@ -758,26 +758,29 @@ def ui_controle_financeiro():
         # CONVERSÃO DE DATA ÚNICA: Garante que o tipo de dado é datetime
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
         
-        df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
-        
-        # Novo gráfico de evolução do patrimônio (Investimento)
-        df_investimento_diario = df_trans[df_trans['Tipo'] == 'Investimento'].set_index('Data').resample('D')['Valor'].sum().fillna(0)
-        
+        # Filtra os dados de investimento para o período selecionado
+        df_investimento_filtrado = df_trans[
+            (df_trans['Tipo'] == 'Investimento') & 
+            (df_trans['Data'].dt.date >= data_inicio) & 
+            (df_trans['Data'].dt.date <= data_fim)
+        ].copy()
+
         # Calcula o patrimônio inicial antes do período filtrado
         patrimonio_inicial = df_trans[
             (df_trans['Data'].dt.date < data_inicio) & 
             (df_trans['Tipo'] == 'Investimento')
         ]['Valor'].sum()
         
-        # Calcula o patrimônio total acumulado no período filtrado
-        df_patrimonio_filtrado = df_investimento_diario.loc[data_inicio:data_fim].cumsum() + patrimonio_inicial
+        # Agrupa por dia e calcula o valor acumulado para o gráfico
+        df_investimento_diario = df_investimento_filtrado.set_index('Data').resample('D')['Valor'].sum().fillna(0)
+        df_patrimonio_filtrado = df_investimento_diario.cumsum() + patrimonio_inicial
         
-        # O gráfico de evolução patrimonial
+        # O gráfico de evolução do patrimônio (Investimento)
         if not df_patrimonio_filtrado.empty:
             fig_evol_patrimonio_investimento = px.line(df_patrimonio_filtrado, 
-                                                       y='Valor', 
+                                                       y=df_patrimonio_filtrado.values, 
                                                        title="Evolução do Patrimônio (Investimentos)", 
-                                                       labels={'index': 'Data', 'Valor': 'Patrimônio Total'},
+                                                       labels={'index': 'Data', 'y': 'Patrimônio Total'},
                                                        markers=True, 
                                                        template="plotly_dark")
             fig_evol_patrimonio_investimento.update_layout(paper_bgcolor='rgba(0,0,0,0)', 
@@ -789,6 +792,7 @@ def ui_controle_financeiro():
 
         col1, col2 = st.columns(2)
         with col1:
+            df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
             fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark")
             fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
