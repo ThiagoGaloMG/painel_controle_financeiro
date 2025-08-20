@@ -675,6 +675,7 @@ def ui_controle_financeiro():
 
     df_trans = st.session_state.transactions.copy()
     if not df_trans.empty:
+        # CONVERSÃO DE DATA CORRIGIDA: A conversão agora é feita logo após a cópia.
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
         
         # Aplica os filtros de data e tipo
@@ -752,57 +753,20 @@ def ui_controle_financeiro():
     
     st.divider()
 
-    df_trans = st.session_state.transactions.copy()
-    if not df_trans.empty:
-        df_trans['Data'] = pd.to_datetime(df_trans['Data'])
-    
-    invest_produtivos = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'].isin(['Ações BR', 'REITs (FII)', 'Ações Internacionais']))]['Valor'].sum()
-    caixa = df_trans[(df_trans['Tipo'] == 'Investimento') & (df_trans['Subcategoria ARCA'] == 'Caixa')]['Valor'].sum()
-    
-    st.session_state.goals['Liberdade Financeira']['atual'] = invest_produtivos
-    st.session_state.goals['Reserva de Emergência']['atual'] = caixa
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.subheader("Distribuição ARCA")
-        df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
-        if not df_arca.empty:
-            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos", hole=.3, template="plotly_dark")
-            fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--text-color)')
-            fig_arca.update_traces(textinfo='percent+label')
-            st.plotly_chart(fig_arca, use_container_width=True)
-        else:
-            st.info("Nenhum investimento ARCA registrado.")
-
-    with col2:
-        st.subheader("Reserva de Emergência")
-        meta = st.session_state.goals['Reserva de Emergência']['meta']
-        atual = st.session_state.goals['Reserva de Emergência']['atual']
-        progresso = (atual / meta) if meta > 0 else 0
-        st.metric("Valor em Caixa", f"R$ {atual:,.2f}")
-        st.progress(min(progresso, 1.0), text=f"{progresso:.1%} da meta de R$ {meta:,.2f}")
-
-    with col3:
-        st.subheader("Liberdade Financeira")
-        meta = st.session_state.goals['Liberdade Financeira']['meta']
-        atual = st.session_state.goals['Liberdade Financeira']['atual']
-        progresso = (atual / meta) if meta > 0 else 0
-        st.metric("Investimentos Produtivos", f"R$ {atual:,.2f}")
-        st.progress(min(progresso, 1.0), text=f"{progresso:.1%} da meta de R$ {meta:,.2f}")
-        
-    st.divider()
-
     st.subheader("Análise Histórica")
     if not df_trans.empty:
+        # CONVERSÃO DE DATA ÚNICA: Garante que o tipo de dado é datetime
+        df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+        
         df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
         
         # Novo gráfico de evolução do patrimônio (Investimento)
         df_investimento_diario = df_trans[df_trans['Tipo'] == 'Investimento'].set_index('Data').resample('D')['Valor'].sum().fillna(0)
         
         # Calcula o patrimônio inicial antes do período filtrado
-        patrimonio_inicial = st.session_state.transactions[
-            (st.session_state.transactions['Data'].dt.date < data_inicio) & 
-            (st.session_state.transactions['Tipo'] == 'Investimento')
+        patrimonio_inicial = df_trans[
+            (df_trans['Data'].dt.date < data_inicio) & 
+            (df_trans['Tipo'] == 'Investimento')
         ]['Valor'].sum()
         
         # Calcula o patrimônio total acumulado no período filtrado
