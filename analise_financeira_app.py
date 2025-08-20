@@ -31,7 +31,7 @@ warnings.filterwarnings('ignore')
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA
 # ==============================================================================
-st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="�")
+st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="📈")
 
 # Estilo CSS para um tema escuro e profissional com efeito Neon
 st.markdown("""
@@ -795,15 +795,43 @@ def ui_controle_financeiro():
     st.subheader("Análise Histórica")
     if not df_trans.empty:
         df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
+        
+        # Novo gráfico de evolução do patrimônio (Investimento)
+        df_investimento_diario = df_trans[df_trans['Tipo'] == 'Investimento'].set_index('Data').resample('D')['Valor'].sum().fillna(0)
+        
+        # Calcula o patrimônio inicial antes do período filtrado
+        patrimonio_inicial = st.session_state.transactions[
+            (st.session_state.transactions['Data'].dt.date < data_inicio) & 
+            (st.session_state.transactions['Tipo'] == 'Investimento')
+        ]['Valor'].sum()
+        
+        # Calcula o patrimônio total acumulado no período filtrado
+        df_patrimonio_filtrado = df_investimento_diario.loc[data_inicio:data_fim].cumsum() + patrimonio_inicial
+        
+        # O gráfico de evolução patrimonial
+        if not df_patrimonio_filtrado.empty:
+            fig_evol_patrimonio_investimento = px.line(df_patrimonio_filtrado, 
+                                                       y='Valor', 
+                                                       title="Evolução do Patrimônio (Investimentos)", 
+                                                       labels={'index': 'Data', 'Valor': 'Patrimônio Total'},
+                                                       markers=True, 
+                                                       template="plotly_dark")
+            fig_evol_patrimonio_investimento.update_layout(paper_bgcolor='rgba(0,0,0,0)', 
+                                                           plot_bgcolor='rgba(0,0,0,0)', 
+                                                           font_color='var(--text-color)', 
+                                                           title_font_color='var(--header-color)',
+                                                           yaxis_title='Patrimônio Total (R$)')
+            st.plotly_chart(fig_evol_patrimonio_investimento, use_container_width=True)
+
         col1, col2 = st.columns(2)
         with col1:
             fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', template="plotly_dark")
-            fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--text-color)')
+            fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
             df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
             fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
-            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--text-color)')
+            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
