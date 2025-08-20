@@ -379,7 +379,7 @@ def carregar_mapeamento_ticker_cvm():
 21690;ELET3;CENTRAIS ELETRICAS BRASILEIRAS S.A. - ELETROBRAS
 21690;ELET6;CENTRAIS ELETRICAS BRASILEIRAS S.A. - ELETROBRAS
 25510;ELMD3;ELETROMIDIA S.A.
-23197;EMAE4;EMAE - EMPRESA METROPOLITANA DE AGUAS E ENERGIA S.A.
+23197;EMAE4;EMPRESA METROPOLITANA DE AGUAS E ENERGIA S.A.
 20589;EMBR3;EMBRAER S.A.
 22491;ENAT3;ENAUTA PARTICIPAÇÕES S.A.
 22653;ENBR3;ENERGIAS DO BRASIL S.A.
@@ -957,8 +957,8 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     hist_capital_empregado = hist_ncg.add(hist_ativo_imobilizado, fill_value=0).add(hist_ativo_intangivel, fill_value=0)
     
     # Garantir que as séries tenham o mesmo índice (anos)
-    df_series = pd.concat([hist_nopat, hist_fco, hist_capital_empregado, hist_divida_cp, hist_divida_lp, hist_desp_financeira, hist_pl_total, hist_rec_liquida, hist_lucro_liquido, hist_contas_a_receber, hist_estoques, hist_fornecedores], axis=1).dropna()
-    df_series.columns = ['NOPAT', 'FCO', 'Capital Empregado', 'Divida CP', 'Divida LP', 'Despesas Financeiras', 'PL', 'Receita Liquida', 'Lucro Liquido', 'Contas a Receber', 'Estoques', 'Fornecedores']
+    df_series = pd.concat([hist_nopat, hist_fco, hist_capital_empregado, hist_divida_cp, hist_divida_lp, hist_desp_financeira, hist_pl_total, hist_rec_liquida, hist_lucro_liquido, hist_contas_a_receber, hist_estoques, hist_fornecedores, hist_ebit, hist_dep_amort], axis=1).dropna()
+    df_series.columns = ['NOPAT', 'FCO', 'Capital Empregado', 'Divida CP', 'Divida LP', 'Despesas Financeiras', 'PL', 'Receita Liquida', 'Lucro Liquido', 'Contas a Receber', 'Estoques', 'Fornecedores', 'EBIT', 'Dep_Amort']
 
     if df_series.empty:
         return None, "Séries históricas incompletas para os cálculos anuais."
@@ -1014,7 +1014,7 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
         'Margem de Lucro (%)': (df_series['Lucro Liquido'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 100 if df_series['Receita Liquida'].iloc[-1] != 0 else 0,
         'Dívida/Patrimônio': divida_total_ultimo_ano / df_series['PL'].iloc[-1] if df_series['PL'].iloc[-1] > 0 else np.nan,
         'Prazo Cobrança (dias)': (df_series['Contas a Receber'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 365 if df_series['Receita Liquida'].iloc[-1] != 0 else np.nan,
-        'Prazo Pagamento (dias)': (df_series['Fornecedores'].iloc[-1] / (df_series['EBIT'].iloc[-1] + hist_dep_amort.iloc[-1] - df_series['Lucro Liquido'].iloc[-1])) * 365 if (df_series['EBIT'].iloc[-1] + hist_dep_amort.iloc[-1] - df_series['Lucro Liquido'].iloc[-1]) != 0 else np.nan,
+        'Prazo Pagamento (dias)': (df_series['Fornecedores'].iloc[-1] / (df_series['EBIT'].iloc[-1] + df_series['Dep_Amort'].iloc[-1] - df_series['Lucro Liquido'].iloc[-1])) * 365 if (df_series['EBIT'].iloc[-1] + df_series['Dep_Amort'].iloc[-1] - df_series['Lucro Liquido'].iloc[-1]) != 0 else np.nan,
         'Giro Estoques (vezes)': df_series['Receita Liquida'].iloc[-1] / df_series['Estoques'].iloc[-1] if df_series['Estoques'].iloc[-1] != 0 else np.nan,
         'ke': ke, 
         'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
