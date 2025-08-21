@@ -9,10 +9,9 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 9: Implementa um sistema de fallback de dados (yfinance -> brapi) para
-           máxima resiliência. Corrige de forma definitiva o erro 'iloc' e
-           'NoneType' através de validações robustas em toda a cascata de
-           processamento de dados.
+Versão 10: Implementa fallback de 3 níveis (yfinance -> brapi -> Alpha Vantage).
+            Adiciona validações de dados em todas as etapas para prevenir
+            erros 'NoneType' e 'iloc', garantindo a estabilidade da aplicação.
 """
 
 import os
@@ -39,6 +38,9 @@ warnings.filterwarnings('ignore')
 # CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA
 # ==============================================================================
 st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="📈")
+
+# Chave da API Alpha Vantage
+ALPHA_VANTAGE_API_KEY = "G34YKVWF0XCPVMZV"
 
 # Estilo CSS aprimorado para temas claro e escuro, com melhor UX
 st.markdown("""
@@ -245,32 +247,30 @@ retry_decorator = retry(
 )
 
 @retry_decorator
-def robust_get_request(url, timeout=60):
+def robust_get_request(url, timeout=60, params=None):
     """Função robusta para fazer requisições GET com retentativas."""
-    response = requests.get(url, timeout=timeout)
+    response = requests.get(url, timeout=timeout, params=params)
     response.raise_for_status()
     return response
 
 @st.cache_data
 def get_stock_data(ticker_sa, period="2y", interval="1d"):
     """
-    Busca dados históricos de um ativo com sistema de fallback.
-    Tenta primeiro com yfinance, se falhar, tenta com a API brapi.
+    Busca dados históricos de um ativo com sistema de fallback de 3 níveis.
+    Tenta yfinance -> brapi -> Alpha Vantage.
     """
     # 1. Tenta com yfinance
     try:
         df = yf.download(ticker_sa, period=period, interval=interval, progress=False, auto_adjust=True)
         if not df.empty:
-            # Garante que as colunas estejam em minúsculas para padronização
             df.columns = [col.lower() for col in df.columns]
             return df
     except Exception:
-        pass # Falha silenciosa para tentar o fallback
+        pass
 
-    # 2. Fallback para brapi API (somente para tickers brasileiros)
+    # 2. Fallback para brapi API
     try:
         ticker_sem_sa = ticker_sa.replace(".SA", "")
-        # A API brapi usa 'range' em vez de 'period'
         range_map = {"2y": "2y", "5y": "5y", "1y": "1y"}
         brapi_range = range_map.get(period, "2y")
         
@@ -283,17 +283,35 @@ def get_stock_data(ticker_sa, period="2y", interval="1d"):
                 df = pd.DataFrame(hist_data)
                 df['date'] = pd.to_datetime(df['date'], unit='s')
                 df = df.set_index('date')
-                # Renomeia as colunas para o padrão do yfinance
-                df = df.rename(columns={
-                    'open': 'open', 'high': 'high', 'low': 'low', 
-                    'close': 'close', 'volume': 'volume'
-                })
-                # Adiciona 'adj close' se não existir
-                if 'adj close' not in df.columns:
-                    df['adj close'] = df['close']
+                df = df.rename(columns={'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'volume': 'volume'})
+                if 'adj close' not in df.columns: df['adj close'] = df['close']
                 return df[['open', 'high', 'low', 'close', 'adj close', 'volume']]
     except Exception:
-        return None # Retorna None se ambas as fontes falharem
+        pass
+
+    # 3. Fallback para Alpha Vantage
+    try:
+        params = {
+            "function": "TIME_SERIES_DAILY_ADJUSTED",
+            "symbol": ticker_sa,
+            "outputsize": "full",
+            "apikey": ALPHA_VANTAGE_API_KEY
+        }
+        response = robust_get_request("https://www.alphavantage.co/query", params=params)
+        data = response.json()
+        
+        if "Time Series (Daily)" in data:
+            df = pd.DataFrame.from_dict(data["Time Series (Daily)"], orient='index')
+            df.index = pd.to_datetime(df.index)
+            df = df.rename(columns={
+                '1. open': 'open', '2. high': 'high', '3. low': 'low', 
+                '4. close': 'close', '5. adjusted close': 'adj close', '6. volume': 'volume'
+            })
+            df = df.apply(pd.to_numeric)
+            df = df.sort_index()
+            return df
+    except Exception:
+        return None
 
     return None
 
@@ -306,20 +324,12 @@ def setup_diretorios():
         CONFIG["DIRETORIO_DADOS_EXTRAIDOS"].mkdir(parents=True, exist_ok=True)
         return True
     except Exception as e:
-        # A nova lógica não precisa de arquivos locais, então este erro pode ser suprimido
         return False
 
 @st.cache_data(show_spinner=False)
 def preparar_dados_cvm(anos_historico):
     """
-    Baixa e processa os dados anuais da CVM para os demonstrativos financeiros,
-    agora lendo diretamente da memória para evitar problemas de permissão.
-
-    Args:
-        anos_historico (int): Número de anos de histórico a serem baixados.
-
-    Returns:
-        dict: Um dicionário com DataFrames consolidados para DRE, BPA, BPP, DFC_MI.
+    Baixa e processa os dados anuais da CVM para os demonstrativos financeiros.
     """
     ano_final = datetime.today().year
     ano_inicial = ano_final - anos_historico
@@ -332,19 +342,15 @@ def preparar_dados_cvm(anos_historico):
             url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
 
             try:
-                # Baixa o arquivo ZIP para a memória usando a função robusta
                 response = robust_get_request(url_zip)
                 zip_buffer = io.BytesIO(response.content)
 
-                # Abre o ZIP a partir da memória e processa os arquivos CSV necessários
                 with ZipFile(zip_buffer, 'r') as z:
                     for tipo in ['DRE', 'BPA', 'BPP', 'DFC_MI']:
                         nome_arquivo_csv = f'dfp_cia_aberta_{tipo}_con_{ano}.csv'
                         if nome_arquivo_csv in z.namelist():
                             with z.open(nome_arquivo_csv) as f:
                                 df_anual = pd.read_csv(f, sep=';', encoding='ISO-8859-1', low_memory=False)
-                                
-                                # Anexa o DataFrame do ano ao tipo correspondente
                                 if tipo.lower() not in demonstrativos_consolidados:
                                     demonstrativos_consolidados[tipo.lower()] = pd.DataFrame()
                                 demonstrativos_consolidados[tipo.lower()] = pd.concat([demonstrativos_consolidados[tipo.lower()], df_anual], ignore_index=True)
@@ -365,9 +371,6 @@ def preparar_dados_cvm(anos_historico):
 def carregar_mapeamento_ticker_cvm():
     """
     Carrega o mapeamento de tickers e códigos CVM a partir de uma string embutida.
-
-    Returns:
-        pd.DataFrame: DataFrame com mapeamento de tickers.
     """
     mapeamento_csv_data = """CD_CVM;Ticker;Nome_Empresa
 25330;ALLD3;ALLIED TECNOLOGIA S.A.
@@ -699,16 +702,13 @@ def obter_dados_mercado(periodo_ibov):
         
         risk_free_rate = selic_anual if selic_anual is not None else 0.105
         
-        try:
-            ibov = get_stock_data('^BVSP', period=periodo_ibov)
-        except RetryError:
+        ibov = get_stock_data('^BVSP', period=periodo_ibov)
+        if ibov is None or ibov.empty:
             st.warning("Não foi possível buscar dados do Ibovespa. Usando valores padrão.")
-            ibov = pd.DataFrame()
-
-        if ibov is not None and not ibov.empty and 'adj close' in ibov.columns:
-            retorno_anual_mercado = ((1 + ibov['adj close'].pct_change().mean()) ** 252) - 1
-        else:
+            ibov = pd.DataFrame() # Cria um DF vazio para evitar erros
             retorno_anual_mercado = 0.12
+        else:
+            retorno_anual_mercado = ((1 + ibov['adj close'].pct_change().mean()) ** 252) - 1
             
         premio_risco_mercado = retorno_anual_mercado - risk_free_rate
     return risk_free_rate, retorno_anual_mercado, premio_risco_mercado, ibov
@@ -958,7 +958,7 @@ def ui_controle_financeiro():
 def calcular_beta(ticker, ibov_data, periodo_beta):
     """Calcula o Beta de uma ação em relação ao Ibovespa de forma robusta."""
     dados_acao = get_stock_data(ticker, period=periodo_beta)
-    if dados_acao is None or dados_acao.empty:
+    if dados_acao is None or dados_acao.empty or ibov_data is None or ibov_data.empty:
         return 1.0
 
     # Alinha os dataframes usando merge para garantir consistência
@@ -994,20 +994,9 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     """
     Executa a análise de valuation de uma única empresa, calculando EVA, EFV, WACC, etc.
     Calcula as métricas de forma histórica para a visualização da evolução.
-
-    Args:
-        ticker_sa (str): Ticker da empresa no formato 'ABCD3.SA'.
-        codigo_cvm (int): Código CVM da empresa.
-        demonstrativos (dict): Dicionário de DataFrames com dados da CVM.
-        market_data (tuple): Dados de mercado (taxa libre de risco, etc.).
-        params (dict): Parâmetros do modelo (taxa de crescimento, etc.).
-
-    Returns:
-        tuple: Dicionário de resultados ou None, e uma mensagem de status.
     """
     (risk_free_rate, _, premio_risco_mercado, ibov_data) = market_data
 
-    # Acesso seguro aos dados do demonstrativo para evitar o KeyError
     dre = demonstrativos.get('dre', pd.DataFrame())
     bpa = demonstrativos.get('bpa', pd.DataFrame())
     bpp = demonstrativos.get('bpp', pd.DataFrame())
@@ -1016,13 +1005,13 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if dre.empty or bpa.empty or bpp.empty or dfc.empty:
         return None, "Dados da CVM não puderam ser baixados. Análise de valuation impossível."
 
-    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm] if not dre.empty else pd.DataFrame()
-    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm] if not bpa.empty else pd.DataFrame()
-    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm] if not bpp.empty else pd.DataFrame()
-    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm] if not dfc.empty else pd.DataFrame()
+    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm]
+    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm]
+    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm]
+    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm]
     
     if any(df.empty for df in [empresa_dre, empresa_bpa, empresa_bpp, empresa_dfc]):
-        return None, "Dados CVM históricos incompletos ou inexistentes."
+        return None, "Dados CVM históricos incompletos ou inexistentes para este ticker."
     
     try:
         info = yf.Ticker(ticker_sa).info
@@ -1059,27 +1048,22 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if hist_lai.sum() == 0 or hist_ebit.empty:
         return None, "Dados de Lucro/EBIT insuficientes para calcular a alíquota de imposto."
 
-    # Cálculo da alíquota efetiva (média)
     aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum()) if hist_lai.sum() != 0 else 0
     
-    # Cálculo das séries históricas
     hist_nopat = hist_ebit * (1 - aliquota_efetiva)
     hist_fco = hist_nopat.add(hist_dep_amort, fill_value=0)
     hist_ncg = hist_contas_a_receber.add(hist_estoques, fill_value=0).subtract(hist_fornecedores, fill_value=0)
     hist_capital_empregado = hist_ncg.add(hist_ativo_imobilizado, fill_value=0).add(hist_ativo_intangivel, fill_value=0)
     
-    # Garantir que as séries tenham o mesmo índice (anos)
     df_series = pd.concat([hist_nopat, hist_fco, hist_capital_empregado, hist_divida_cp, hist_divida_lp, hist_desp_financeira, hist_pl_total, hist_rec_liquida, hist_lucro_liquido, hist_contas_a_receber, hist_estoques, hist_fornecedores, hist_ebit, hist_dep_amort], axis=1).dropna()
     df_series.columns = ['NOPAT', 'FCO', 'Capital Empregado', 'Divida CP', 'Divida LP', 'Despesas Financeiras', 'PL', 'Receita Liquida', 'Lucro Liquido', 'Contas a Receber', 'Estoques', 'Fornecedores', 'EBIT', 'Dep_Amort']
 
     if df_series.empty:
         return None, "Séries históricas incompletas para os cálculos anuais."
     
-    # Cálculo de métricas históricas
     hist_divida_total = df_series['Divida CP'] + df_series['Divida LP']
     hist_roic = (df_series['NOPAT'] / df_series['Capital Empregado'])
     
-    # Cálculo do Beta e WACC (para fins de exibição e cálculo de perp.)
     divida_total_ultimo_ano = hist_divida_total.iloc[-1]
     
     beta_hamada = calcular_beta_hamada(ticker_sa, ibov_data, params['periodo_beta_ibov'], aliquota_efetiva, divida_total_ultimo_ano, market_cap)
@@ -1090,55 +1074,37 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if wacc_medio <= params['taxa_crescimento_perpetuidade'] or pd.isna(wacc_medio):
         return None, "WACC inválido ou menor/igual à taxa de crescimento na perpetuidade. Ajuste os parâmetros."
 
-    hist_wacc = pd.Series([wacc_medio] * len(df_series.index), index=df_series.index) # WACC é considerado constante no histórico
+    hist_wacc = pd.Series([wacc_medio] * len(df_series.index), index=df_series.index)
     
     hist_eva = (hist_roic - hist_wacc) * df_series['Capital Empregado']
     hist_riqueza_atual = hist_eva / hist_wacc
     
-    # Para Riqueza Futura e EFV, usamos a premissa de que o Market Cap está no último ano
     riqueza_futura_esperada_ultimo = market_cap + divida_total_ultimo_ano - df_series['Capital Empregado'].iloc[-1]
     efv_ultimo = riqueza_futura_esperada_ultimo - hist_riqueza_atual.iloc[-1]
 
-    # Criação das séries históricas PERCENTUAIS
     hist_riqueza_futura_percentual = ((pd.Series([riqueza_futura_esperada_ultimo] * len(df_series.index), index=df_series.index) / df_series['Capital Empregado']) - 1) * 100
     hist_riqueza_atual_percentual = (hist_riqueza_atual / df_series['Capital Empregado']) * 100
     hist_efv_percentual = (hist_riqueza_futura_percentual - hist_riqueza_atual_percentual)
     hist_eva_percentual = (hist_eva / df_series['Capital Empregado']) * 100
     
-    # Dicionário de resultados para o último ano (para exibição principal)
     resultados = {
-        'Empresa': nome_empresa, 
-        'Ticker': ticker_sa.replace('.SA', ''), 
-        'Preço Atual (R$)': preco_atual, 
+        'Empresa': nome_empresa, 'Ticker': ticker_sa.replace('.SA', ''), 'Preço Atual (R$)': preco_atual, 
         'Preço Justo (R$)': (riqueza_futura_esperada_ultimo + df_series['Capital Empregado'].iloc[-1] - divida_total_ultimo_ano) / n_acoes if n_acoes > 0 else 0, 
         'Margem Segurança (%)': ((riqueza_futura_esperada_ultimo + df_series['Capital Empregado'].iloc[-1] - divida_total_ultimo_ano) / n_acoes / preco_atual - 1) * 100 if n_acoes > 0 and preco_atual > 0 else -100, 
-        'Market Cap (R$)': market_cap, 
-        'Capital Empregado (R$)': df_series['Capital Empregado'].iloc[-1], 
-        'Dívida Total (R$)': divida_total_ultimo_ano, 
-        'NOPAT Médio (R$)': df_series['NOPAT'].tail(params['media_anos_calculo']).mean(), 
-        'ROIC (%)': hist_roic.iloc[-1] * 100, 
-        'Beta': beta_hamada, 
-        'Custo do Capital (WACC %)': wacc_medio * 100, 
-        'Spread (ROIC-WACC %)': (hist_roic.iloc[-1] - hist_wacc.iloc[-1]) * 100, 
-        'EVA (R$)': hist_eva.iloc[-1], 
-        'EFV (R$)': efv_ultimo,
+        'Market Cap (R$)': market_cap, 'Capital Empregado (R$)': df_series['Capital Empregado'].iloc[-1], 
+        'Dívida Total (R$)': divida_total_ultimo_ano, 'NOPAT Médio (R$)': df_series['NOPAT'].tail(params['media_anos_calculo']).mean(), 
+        'ROIC (%)': hist_roic.iloc[-1] * 100, 'Beta': beta_hamada, 'Custo do Capital (WACC %)': wacc_medio * 100, 
+        'Spread (ROIC-WACC %)': (hist_roic.iloc[-1] - hist_wacc.iloc[-1]) * 100, 'EVA (R$)': hist_eva.iloc[-1], 'EFV (R$)': efv_ultimo,
         'Crescimento Vendas (%)': df_series['Receita Liquida'].pct_change().iloc[-1] * 100 if len(df_series['Receita Liquida']) > 1 else 0,
         'Margem de Lucro (%)': (df_series['Lucro Liquido'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 100 if df_series['Receita Liquida'].iloc[-1] != 0 else 0,
         'Dívida/Patrimônio': divida_total_ultimo_ano / df_series['PL'].iloc[-1] if df_series['PL'].iloc[-1] > 0 else np.nan,
         'Prazo Cobrança (dias)': (df_series['Contas a Receber'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 365 if df_series['Receita Liquida'].iloc[-1] != 0 else np.nan,
         'Prazo Pagamento (dias)': (df_series['Fornecedores'].iloc[-1] / (df_series['EBIT'].iloc[-1] + df_series['Dep_Amort'].iloc[-1] - df_series['Lucro Liquido'].iloc[-1])) * 365 if (df_series['EBIT'].iloc[-1] + df_series['Dep_Amort'].iloc[-1] - df_series['Lucro Liquido'].iloc[-1]) != 0 else np.nan,
         'Giro Estoques (vezes)': df_series['Receita Liquida'].iloc[-1] / df_series['Estoques'].iloc[-1] if df_series['Estoques'].iloc[-1] != 0 else np.nan,
-        'ke': ke, 
-        'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
-        # Séries históricas para os gráficos
-        'hist_nopat': hist_nopat, 
-        'hist_fco': hist_fco,
-        'hist_roic': hist_roic * 100,
-        'wacc_series': hist_wacc * 100,
-        'hist_riqueza_futura_percentual': hist_riqueza_futura_percentual,
-        'hist_riqueza_atual_percentual': hist_riqueza_atual_percentual,
-        'hist_efv_percentual': hist_efv_percentual,
-        'hist_eva_percentual': hist_eva_percentual
+        'ke': ke, 'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
+        'hist_nopat': hist_nopat, 'hist_fco': hist_fco, 'hist_roic': hist_roic * 100, 'wacc_series': hist_wacc * 100,
+        'hist_riqueza_futura_percentual': hist_riqueza_futura_percentual, 'hist_riqueza_atual_percentual': hist_riqueza_atual_percentual,
+        'hist_efv_percentual': hist_efv_percentual, 'hist_eva_percentual': hist_eva_percentual
     }
     
     return resultados, "Análise concluída com sucesso."
@@ -1578,26 +1544,22 @@ def calcular_greeks(S, K, T, r, sigma, option_type="call"):
 def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=None):
     """
     Realiza a análise técnica completa e retorna um score de convergência.
-    NOVO: Suporta múltiplos tempos gráficos e combos de confirmação.
     """
     if thresholds is None:
         thresholds = {'forte': 0.7, 'normal': 0.2}
 
     try:
-        # Define período e intervalo com base no timeframe
         if timeframe == 'weekly':
             df = get_stock_data(ticker, period="5y", interval="1wk")
-        else: # daily
+        else: 
             df = get_stock_data(ticker, period="2y", interval="1d")
 
-        # CORREÇÃO ROBUSTA PARA O ERRO 'NoneType' e 'MultiIndex'
         if df is None or df.empty:
-            return "Dados Insuficientes", 0, {"Erro": "Dados históricos indisponíveis nas fontes primária e secundária."}, "NEUTRO"
+            return "Dados Insuficientes", 0, {"Erro": "Dados históricos indisponíveis."}, "NEUTRO"
             
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(0)
 
-        # Define a estratégia com os indicadores desejados
         MyStrategy = ta.Strategy(
             name="Convergencia_Opcoes",
             description="RSI, MACD, BBANDS, EMA, ADX, STOCH, PSAR",
@@ -1608,20 +1570,17 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
             ]
         )
         
-        # Roda a estratégia no DataFrame
         df.ta.strategy(MyStrategy)
         df.dropna(inplace=True)
 
         if df.empty:
             return "Dados Insuficientes", 0, {"Erro": "Não foi possível calcular os indicadores."}, "NEUTRO"
 
-        # Pega o último valor de cada indicador
         last = df.iloc[-1]
         
         sinais = {}
         valores_indicadores = {}
         
-        # Lógica de Sinais (igual para ambos os timeframes)
         try:
             rsi_val = last['RSI_14']
             valores_indicadores['RSI'] = f"{rsi_val:.1f}"
@@ -1649,12 +1608,10 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
             else: sinais['EMA'] = -1
         except (KeyError, TypeError): sinais['EMA'] = 0; valores_indicadores['EMA (9 vs 21)'] = "Erro"
 
-        # Se for análise semanal, só precisamos do viés de tendência
         if timeframe == 'weekly':
             weekly_bias_signal = "Alta" if sinais.get('EMA', 0) > 0 and sinais.get('MACD', 0) > 0 else ("Baixa" if sinais.get('EMA', 0) < 0 and sinais.get('MACD', 0) < 0 else "Neutro")
             return "Viés Semanal", 0, valores_indicadores, weekly_bias_signal
 
-        # Continua para análise diária...
         try:
             adx_val = last['ADX_14']
             valores_indicadores['ADX'] = f"{adx_val:.1f}"
@@ -1691,17 +1648,13 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
         }
         
         score = sum(pesos.get(ind, 0) * valor for ind, valor in sinais.items())
+        score_ajustado = score + (0.15 * weekly_bias)
         
-        # Adiciona o viés da tendência semanal ao score
-        score_ajustado = score + (0.15 * weekly_bias) # Viés semanal tem 15% de peso
-        
-        # Lógica de "Combo" de Confirmação
         tendencia_alta = sinais.get('MACD', 0) > 0 or sinais.get('EMA', 0) > 0
         momento_alta = sinais.get('RSI', 0) > 0 or sinais.get('STOCH', 0) > 0
         tendencia_baixa = sinais.get('MACD', 0) < 0 or sinais.get('EMA', 0) < 0
         momento_baixa = sinais.get('RSI', 0) < 0 or sinais.get('STOCH', 0) < 0
 
-        # Determinação do Sinal Final com base nos novos limiares e combos
         if score_ajustado > thresholds['forte'] and tendencia_alta and momento_alta:
             sinal_final = "COMPRA FORTE"
         elif score_ajustado > thresholds['normal']:
@@ -1713,7 +1666,7 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
         else:
             sinal_final = "NEUTRO"
 
-        return sinal_final, score_ajustado, valores_indicadores, "N/A" # N/A para bias pois é a análise principal
+        return sinal_final, score_ajustado, valores_indicadores, "N/A"
     except (RetryError, Exception) as e:
         return "Erro", 0, {"Erro": str(e)}, "NEUTRO"
 
@@ -1722,10 +1675,8 @@ def gerar_analise_avancada(row, vies_fundamental, sinal_tecnico, vies_semanal):
     diff_percent = row['Diferença (%)']
     tipo = row['Tipo']
     
-    # 1. Análise do Preço da Opção (Derivativos)
     subvalorizada = diff_percent <= -20
     
-    # 2. Análise de Convergência
     recomendacao_final = "Aguardar"
     analise_texto = ""
 
@@ -1820,7 +1771,6 @@ def ui_black_scholes():
                 
                 resultados_valuation, status_msg = processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params_analise)
                 
-                # TRAVA DE SEGURANÇA: Interrompe se o valuation falhar
                 if resultados_valuation is None:
                     st.error(f"Falha na Análise Fundamentalista: {status_msg}. A análise de opções não pode continuar.")
                     st.stop()
@@ -1834,13 +1784,11 @@ def ui_black_scholes():
                 st.session_state['vies_fundamental_bs'] = vies_fundamental
 
                 # 2. Análise Técnica (Multi-Timeframe)
-                # 2.1 Análise Semanal para viés de tendência
                 _, _, _, vies_semanal = analise_tecnica_ativo(ticker_sa, timeframe='weekly')
                 st.session_state['vies_semanal_bs'] = vies_semanal
                 weekly_bias_value = 1 if vies_semanal == "Alta" else (-1 if vies_semanal == "Baixa" else 0)
 
-                # 2.2 Análise Diária com viés semanal
-                sinal_tecnico, score_tecnico, detalhes_tecnicos, _ = analise_tecnica_ativo(ticker_sa, timeframe='daily', weekly_bias=weekly_bias_value, thresholds=thresholds_config)
+                sinal_tecnico, _, detalhes_tecnicos, _ = analise_tecnica_ativo(ticker_sa, timeframe='daily', weekly_bias=weekly_bias_value, thresholds=thresholds_config)
                 st.session_state['sinal_tecnico_bs'] = sinal_tecnico
                 st.session_state['detalhes_tecnicos_bs'] = detalhes_tecnicos
                 
@@ -1900,7 +1848,6 @@ def ui_black_scholes():
         col3.metric("Sinal Técnico (Diário)", sinal_tecnico)
 
         with st.expander("Detalhes da Análise Técnica Diária"):
-            # Trava de segurança para a tabela de detalhes
             if isinstance(detalhes_tecnicos, dict):
                 st.table(pd.DataFrame.from_dict(detalhes_tecnicos, orient='index', columns=['Valor/Sinal']))
             else:
