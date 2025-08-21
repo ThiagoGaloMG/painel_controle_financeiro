@@ -9,10 +9,10 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 8: Implementa sistema de retentativa automática (retry) para todas as
-           chamadas de rede (CVM, yfinance) para máxima resiliência. Adiciona
-           "trava de segurança" para evitar crashes por falha de dados.
-           Corrige CSS e adiciona explicações.
+Versão 9: Implementa um sistema de fallback de dados (yfinance -> brapi) para
+           máxima resiliência. Corrige de forma definitiva o erro 'iloc' e
+           'NoneType' através de validações robustas em toda a cascata de
+           processamento de dados.
 """
 
 import os
@@ -251,10 +251,51 @@ def robust_get_request(url, timeout=60):
     response.raise_for_status()
     return response
 
-@retry_decorator
-def robust_yf_download(*args, **kwargs):
-    """Função robusta para baixar dados do yfinance com retentativas."""
-    return yf.download(*args, **kwargs)
+@st.cache_data
+def get_stock_data(ticker_sa, period="2y", interval="1d"):
+    """
+    Busca dados históricos de um ativo com sistema de fallback.
+    Tenta primeiro com yfinance, se falhar, tenta com a API brapi.
+    """
+    # 1. Tenta com yfinance
+    try:
+        df = yf.download(ticker_sa, period=period, interval=interval, progress=False, auto_adjust=True)
+        if not df.empty:
+            # Garante que as colunas estejam em minúsculas para padronização
+            df.columns = [col.lower() for col in df.columns]
+            return df
+    except Exception:
+        pass # Falha silenciosa para tentar o fallback
+
+    # 2. Fallback para brapi API (somente para tickers brasileiros)
+    try:
+        ticker_sem_sa = ticker_sa.replace(".SA", "")
+        # A API brapi usa 'range' em vez de 'period'
+        range_map = {"2y": "2y", "5y": "5y", "1y": "1y"}
+        brapi_range = range_map.get(period, "2y")
+        
+        response = robust_get_request(f"https://brapi.dev/api/quote/{ticker_sem_sa}?range={brapi_range}&interval={interval}")
+        data = response.json()
+        
+        if 'results' in data and data['results']:
+            hist_data = data['results'][0].get('historicalDataPrice')
+            if hist_data:
+                df = pd.DataFrame(hist_data)
+                df['date'] = pd.to_datetime(df['date'], unit='s')
+                df = df.set_index('date')
+                # Renomeia as colunas para o padrão do yfinance
+                df = df.rename(columns={
+                    'open': 'open', 'high': 'high', 'low': 'low', 
+                    'close': 'close', 'volume': 'volume'
+                })
+                # Adiciona 'adj close' se não existir
+                if 'adj close' not in df.columns:
+                    df['adj close'] = df['close']
+                return df[['open', 'high', 'low', 'close', 'adj close', 'volume']]
+    except Exception:
+        return None # Retorna None se ambas as fontes falharem
+
+    return None
 
 
 @st.cache_data
@@ -601,7 +642,7 @@ def carregar_mapeamento_ticker_cvm():
 23280;VLID3;VALID SOLUcoes S.A.
 23280;VULC3;VULCABRAS S.A.
 23280;WEGE3;WEG S.A.
-23280;WIZS3;WIZ SOLUcoes E CORRETAGEM DE SEGUROS S.A.
+23280;WIZS3;WIZ SOLucoes E CORRETAGEM DE SEGUROS S.A.
 23280;YDUQ3;YDUQS PARTICIPACOES S.A.
 25801;REDE3;REDE ENERGIA PARTICIPAÇÕES S.A.
 25810;GGPS3;GPS PARTICIPAÇÕES E EMPREENDIMENTOS S.A.
@@ -659,13 +700,13 @@ def obter_dados_mercado(periodo_ibov):
         risk_free_rate = selic_anual if selic_anual is not None else 0.105
         
         try:
-            ibov = robust_yf_download('^BVSP', period=periodo_ibov, progress=False)
+            ibov = get_stock_data('^BVSP', period=periodo_ibov)
         except RetryError:
-            st.warning("Não foi possível buscar dados do Ibovespa do Yahoo Finance. Usando valores padrão.")
+            st.warning("Não foi possível buscar dados do Ibovespa. Usando valores padrão.")
             ibov = pd.DataFrame()
 
-        if not ibov.empty and 'Adj Close' in ibov.columns:
-            retorno_anual_mercado = ((1 + ibov['Adj Close'].pct_change().mean()) ** 252) - 1
+        if ibov is not None and not ibov.empty and 'adj close' in ibov.columns:
+            retorno_anual_mercado = ((1 + ibov['adj close'].pct_change().mean()) ** 252) - 1
         else:
             retorno_anual_mercado = 0.12
             
@@ -916,15 +957,12 @@ def ui_controle_financeiro():
 # ==============================================================================
 def calcular_beta(ticker, ibov_data, periodo_beta):
     """Calcula o Beta de uma ação em relação ao Ibovespa de forma robusta."""
-    try:
-        dados_acao = robust_yf_download(ticker, period=periodo_beta, progress=False, auto_adjust=True)['Close']
-        if dados_acao.empty:
-            return 1.0
-    except (RetryError, Exception):
+    dados_acao = get_stock_data(ticker, period=periodo_beta)
+    if dados_acao is None or dados_acao.empty:
         return 1.0
 
     # Alinha os dataframes usando merge para garantir consistência
-    dados_combinados = pd.merge(dados_acao, ibov_data['Close'], left_index=True, right_index=True, suffixes=('_acao', '_ibov')).dropna()
+    dados_combinados = pd.merge(dados_acao['close'], ibov_data['adj close'], left_index=True, right_index=True, suffixes=('_acao', '_ibov')).dropna()
     
     retornos_mensais = dados_combinados.resample('M').ffill().pct_change().dropna()
 
@@ -1362,6 +1400,10 @@ def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
     cdg = pl.add(pnc, fill_value=0).subtract(ap, fill_value=0)
     t = cdg.subtract(ncg, fill_value=0)
     
+    # Validação para evitar erro de iloc
+    if t.empty or ncg.empty or cdg.empty:
+        return None
+
     efeito_tesoura = False
     if len(ncg) > 1 and len(cdg) > 1:
         cresc_ncg = ncg.pct_change().iloc[-1]
@@ -1373,11 +1415,21 @@ def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
         # Cálculo do Z-Score de Prado conforme o TCC
         info = yf.Ticker(ticker_sa).info
         market_cap = info.get('marketCap', 0)
-        ativo_total = obter_historico_metrica(empresa_bpa, C['ATIVO_TOTAL']).iloc[-1]
-        passivo_total = obter_historico_metrica(empresa_bpp, C['PASSIVO_TOTAL']).iloc[-1]
+        
+        # Validação de dados históricos antes de usar .iloc
+        ativo_total_hist = obter_historico_metrica(empresa_bpa, C['ATIVO_TOTAL'])
+        passivo_total_hist = obter_historico_metrica(empresa_bpp, C['PASSIVO_TOTAL'])
+        ebit_hist = obter_historico_metrica(empresa_dre, C['EBIT'])
+        vendas_hist = obter_historico_metrica(empresa_dre, C['RECEITA_LIQUIDA'])
+
+        if any(s.empty for s in [ativo_total_hist, passivo_total_hist, ebit_hist, vendas_hist, pl]):
+            return None
+
+        ativo_total = ativo_total_hist.iloc[-1]
+        passivo_total = passivo_total_hist.iloc[-1]
+        ebit = ebit_hist.iloc[-1]
+        vendas = vendas_hist.iloc[-1]
         lucro_retido = pl.iloc[-1] - pl.iloc[0]
-        ebit = obter_historico_metrica(empresa_dre, C['EBIT']).iloc[-1]
-        vendas = obter_historico_metrica(empresa_dre, C['RECEITA_LIQUIDA']).iloc[-1]
         
         X1 = cdg.iloc[-1] / ativo_total
         X2 = lucro_retido / ativo_total
@@ -1395,7 +1447,7 @@ def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
         else:
             classificacao = "Saudável"
             
-    except Exception:
+    except (Exception, IndexError):
         z_score, classificacao = None, "Erro no cálculo"
 
     return {'Ticker': ticker_sa.replace('.SA', ''), 'Empresa': info.get('longName', ticker_sa), 'Ano': t.index[-1], 'NCG': ncg.iloc[-1], 'CDG': cdg.iloc[-1], 'Tesouraria': t.iloc[-1], 'Efeito Tesoura': efeito_tesoura, 'Z-Score': z_score, 'Classificação Risco': classificacao}
@@ -1408,6 +1460,11 @@ def ui_modelo_fleuriet():
     if st.button("🚀 Iniciar Análise Fleuriet Completa", type="primary", use_container_width=True):
         ticker_cvm_map_df = carregar_mapeamento_ticker_cvm()
         demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
+        
+        if not demonstrativos:
+            st.error("Não foi possível baixar os dados da CVM. A análise não pode continuar.")
+            st.stop()
+
         resultados_fleuriet = []
         progress_bar = st.progress(0, text="Iniciando análise Fleuriet...")
         total_empresas = len(ticker_cvm_map_df)
@@ -1455,10 +1512,10 @@ def ui_modelo_fleuriet():
 def calcular_volatilidade_historica(ticker, periodo="1y"):
     """Calcula a volatilidade histórica anualizada de um ativo."""
     try:
-        dados = robust_yf_download(ticker, period=periodo, progress=False)
+        dados = get_stock_data(ticker, period=periodo)
         if dados is None or dados.empty:
             return None
-        dados['log_retorno'] = np.log(dados['Close'] / dados['Close'].shift(1))
+        dados['log_retorno'] = np.log(dados['close'] / dados['close'].shift(1))
         # 252 dias de pregão em um ano
         volatilidade_anualizada = dados['log_retorno'].std() * np.sqrt(252)
         return volatilidade_anualizada
@@ -1529,13 +1586,13 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
     try:
         # Define período e intervalo com base no timeframe
         if timeframe == 'weekly':
-            df = robust_yf_download(ticker, period="5y", interval="1wk", progress=False)
+            df = get_stock_data(ticker, period="5y", interval="1wk")
         else: # daily
-            df = robust_yf_download(ticker, period="2y", interval="1d", progress=False)
+            df = get_stock_data(ticker, period="2y", interval="1d")
 
         # CORREÇÃO ROBUSTA PARA O ERRO 'NoneType' e 'MultiIndex'
         if df is None or df.empty:
-            return "Dados Insuficientes", 0, {"Erro": "Dados do yfinance vazios ou ticker inválido."}, "NEUTRO"
+            return "Dados Insuficientes", 0, {"Erro": "Dados históricos indisponíveis nas fontes primária e secundária."}, "NEUTRO"
             
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(0)
@@ -1581,8 +1638,8 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
         
         try:
             valores_indicadores['Bandas de Bollinger'] = f"{last['BBP_20_2.0']:.2f}"
-            if last['Close'] < last['BBL_20_2.0']: sinais['BOLLINGER'] = 1
-            elif last['Close'] > last['BBU_20_2.0']: sinais['BOLLINGER'] = -1
+            if last['close'] < last['BBL_20_2.0']: sinais['BOLLINGER'] = 1
+            elif last['close'] > last['BBU_20_2.0']: sinais['BOLLINGER'] = -1
             else: sinais['BOLLINGER'] = 0
         except (KeyError, TypeError): sinais['BOLLINGER'] = 0; valores_indicadores['Bandas de Bollinger'] = "Erro"
         
