@@ -1,11 +1,10 @@
-streamlit
 pandas
-numpy
 yfinance
 requests
+streamlit
 plotly
-scipy
 tenacity
-lxml
-html5lib
-beautifulsoup4
+scipy
+numpy==1.26.4
+pandas-ta
+setuptools
