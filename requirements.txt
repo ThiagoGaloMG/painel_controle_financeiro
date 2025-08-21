@@ -1,10 +1,33 @@
-pandas
-yfinance
-requests
-streamlit
-plotly
-tenacity
-scipy
+# ===================================================================
+# Arquivo de Dependências para o Painel de Controle Financeiro
+# Versão 2.0 - Versões fixadas para garantir estabilidade em produção
+# ===================================================================
+
+# --- Core do Streamlit e Análise de Dados ---
+streamlit==1.48.1
+pandas==2.3.2
 numpy==1.26.4
-pandas-ta
-setuptools
+
+# --- Fontes de Dados Financeiros ---
+yfinance==0.2.65
+requests==2.32.5
+
+# --- Bibliotecas de Análise e Modelagem ---
+scipy==1.16.1
+pandas-ta==0.3.14b0
+
+# --- Visualização de Dados ---
+plotly==6.3.0
+
+# --- Utilitários e Resiliência ---
+tenacity==9.1.2
+
+# --- Dependências Opcionais (Recomendadas para Robustez) ---
+# Necessário para o pandas ler e escrever arquivos Excel (.xlsx)
+openpyxl
+
+# Parser de HTML mais rápido e robusto, usado por pandas e requests
+lxml
+
+# Usado para web scraping, pode ser uma dependência indireta
+beautifulsoup4==4.13.4
