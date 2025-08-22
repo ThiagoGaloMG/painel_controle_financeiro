@@ -9,9 +9,9 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 13: Corrige o erro crítico 'UnboundLocalError' na função Fleuriet,
-            garantindo que a análise em lote não seja interrompida por falhas
-            em tickers individuais. Aumenta a resiliência geral da aplicação.
+Versão 13: Corrige o erro crítico 'UnboundLocalError' e 'AttributeError'.
+            Implementa blindagem de funções para garantir que a análise em lote
+            processe todas as empresas. Adiciona Modo de Depuração na Análise Técnica.
 """
 
 import os
@@ -184,7 +184,7 @@ st.markdown("""
     }
     
     /* Cor do texto geral e labels dos widgets */
-    .stMarkdown, .stSelectbox > label, .stDateInput > label, .stNumberInput > label, .stTextInput > label, .stSlider > label {
+    .stMarkdown, .stSelectbox > label, .stDateInput > label, .stNumberInput > label, .stTextInput > label, .stSlider > label, .stCheckbox > label {
         color: var(--text-color) !important; /* CORREÇÃO DE COR */
     }
     
@@ -904,11 +904,13 @@ def ui_controle_financeiro():
                                         legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
-            df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
-            fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
-            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                              legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
-            st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
+            # CORREÇÃO: Verifica se o DataFrame não está vazio antes de calcular
+            if not df_monthly.empty:
+                df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
+                fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
+                fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                                                    legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+                st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
 
@@ -985,23 +987,24 @@ def calcular_beta_hamada(ticker, ibov_data, periodo_beta, imposto, divida_total,
 def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params):
     """
     Executa a análise de valuation de uma única empresa, calculando EVA, EFV, WACC, etc.
-    Calcula as métricas de forma histórica para a visualização da evolução.
     """
     (risk_free_rate, _, premio_risco_mercado, ibov_data) = market_data
 
-    # Acesso seguro aos dados do demonstrativo para evitar o KeyError
     dre = demonstrativos.get('dre', pd.DataFrame())
     bpa = demonstrativos.get('bpa', pd.DataFrame())
     bpp = demonstrativos.get('bpp', pd.DataFrame())
     dfc = demonstrativos.get('dfc_mi', pd.DataFrame())
     
-    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm] if not dre.empty else pd.DataFrame()
-    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm] if not bpa.empty else pd.DataFrame()
-    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm] if not bpp.empty else pd.DataFrame()
-    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm] if not dfc.empty else pd.DataFrame()
+    if dre.empty or bpa.empty or bpp.empty or dfc.empty:
+        return None, "Dados da CVM não puderam ser baixados. Análise de valuation impossível."
+
+    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm]
+    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm]
+    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm]
+    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm]
     
     if any(df.empty for df in [empresa_dre, empresa_bpa, empresa_bpp, empresa_dfc]):
-        return None, "Dados CVM históricos incompletos ou inexistentes."
+        return None, "Dados CVM históricos incompletos ou inexistentes para este ticker."
     
     try:
         info = yf.Ticker(ticker_sa).info
@@ -1038,27 +1041,22 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if hist_lai.sum() == 0 or hist_ebit.empty:
         return None, "Dados de Lucro/EBIT insuficientes para calcular a alíquota de imposto."
 
-    # Cálculo da alíquota efetiva (média)
     aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum()) if hist_lai.sum() != 0 else 0
     
-    # Cálculo das séries históricas
     hist_nopat = hist_ebit * (1 - aliquota_efetiva)
     hist_fco = hist_nopat.add(hist_dep_amort, fill_value=0)
     hist_ncg = hist_contas_a_receber.add(hist_estoques, fill_value=0).subtract(hist_fornecedores, fill_value=0)
     hist_capital_empregado = hist_ncg.add(hist_ativo_imobilizado, fill_value=0).add(hist_ativo_intangivel, fill_value=0)
     
-    # Garantir que as séries tenham o mesmo índice (anos)
     df_series = pd.concat([hist_nopat, hist_fco, hist_capital_empregado, hist_divida_cp, hist_divida_lp, hist_desp_financeira, hist_pl_total, hist_rec_liquida, hist_lucro_liquido, hist_contas_a_receber, hist_estoques, hist_fornecedores, hist_ebit, hist_dep_amort], axis=1).dropna()
     df_series.columns = ['NOPAT', 'FCO', 'Capital Empregado', 'Divida CP', 'Divida LP', 'Despesas Financeiras', 'PL', 'Receita Liquida', 'Lucro Liquido', 'Contas a Receber', 'Estoques', 'Fornecedores', 'EBIT', 'Dep_Amort']
 
     if df_series.empty:
         return None, "Séries históricas incompletas para os cálculos anuais."
     
-    # Cálculo de métricas históricas
     hist_divida_total = df_series['Divida CP'] + df_series['Divida LP']
     hist_roic = (df_series['NOPAT'] / df_series['Capital Empregado'])
     
-    # Cálculo do Beta e WACC (para fins de exibição e cálculo de perp.)
     divida_total_ultimo_ano = hist_divida_total.iloc[-1]
     
     beta_hamada = calcular_beta_hamada(ticker_sa, ibov_data, params['periodo_beta_ibov'], aliquota_efetiva, divida_total_ultimo_ano, market_cap)
@@ -1069,55 +1067,37 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if wacc_medio <= params['taxa_crescimento_perpetuidade'] or pd.isna(wacc_medio):
         return None, "WACC inválido ou menor/igual à taxa de crescimento na perpetuidade. Ajuste os parâmetros."
 
-    hist_wacc = pd.Series([wacc_medio] * len(df_series.index), index=df_series.index) # WACC é considerado constante no histórico
+    hist_wacc = pd.Series([wacc_medio] * len(df_series.index), index=df_series.index)
     
     hist_eva = (hist_roic - hist_wacc) * df_series['Capital Empregado']
     hist_riqueza_atual = hist_eva / hist_wacc
     
-    # Para Riqueza Futura e EFV, usamos a premissa de que o Market Cap está no último ano
     riqueza_futura_esperada_ultimo = market_cap + divida_total_ultimo_ano - df_series['Capital Empregado'].iloc[-1]
     efv_ultimo = riqueza_futura_esperada_ultimo - hist_riqueza_atual.iloc[-1]
 
-    # Criação das séries históricas PERCENTUAIS
     hist_riqueza_futura_percentual = ((pd.Series([riqueza_futura_esperada_ultimo] * len(df_series.index), index=df_series.index) / df_series['Capital Empregado']) - 1) * 100
     hist_riqueza_atual_percentual = (hist_riqueza_atual / df_series['Capital Empregado']) * 100
     hist_efv_percentual = (hist_riqueza_futura_percentual - hist_riqueza_atual_percentual)
     hist_eva_percentual = (hist_eva / df_series['Capital Empregado']) * 100
     
-    # Dicionário de resultados para o último ano (para exibição principal)
     resultados = {
-        'Empresa': nome_empresa, 
-        'Ticker': ticker_sa.replace('.SA', ''), 
-        'Preço Atual (R$)': preco_atual, 
+        'Empresa': nome_empresa, 'Ticker': ticker_sa.replace('.SA', ''), 'Preço Atual (R$)': preco_atual, 
         'Preço Justo (R$)': (riqueza_futura_esperada_ultimo + df_series['Capital Empregado'].iloc[-1] - divida_total_ultimo_ano) / n_acoes if n_acoes > 0 else 0, 
         'Margem Segurança (%)': ((riqueza_futura_esperada_ultimo + df_series['Capital Empregado'].iloc[-1] - divida_total_ultimo_ano) / n_acoes / preco_atual - 1) * 100 if n_acoes > 0 and preco_atual > 0 else -100, 
-        'Market Cap (R$)': market_cap, 
-        'Capital Empregado (R$)': df_series['Capital Empregado'].iloc[-1], 
-        'Dívida Total (R$)': divida_total_ultimo_ano, 
-        'NOPAT Médio (R$)': df_series['NOPAT'].tail(params['media_anos_calculo']).mean(), 
-        'ROIC (%)': hist_roic.iloc[-1] * 100, 
-        'Beta': beta_hamada, 
-        'Custo do Capital (WACC %)': wacc_medio * 100, 
-        'Spread (ROIC-WACC %)': (hist_roic.iloc[-1] - hist_wacc.iloc[-1]) * 100, 
-        'EVA (R$)': hist_eva.iloc[-1], 
-        'EFV (R$)': efv_ultimo,
+        'Market Cap (R$)': market_cap, 'Capital Empregado (R$)': df_series['Capital Empregado'].iloc[-1], 
+        'Dívida Total (R$)': divida_total_ultimo_ano, 'NOPAT Médio (R$)': df_series['NOPAT'].tail(params['media_anos_calculo']).mean(), 
+        'ROIC (%)': hist_roic.iloc[-1] * 100, 'Beta': beta_hamada, 'Custo do Capital (WACC %)': wacc_medio * 100, 
+        'Spread (ROIC-WACC %)': (hist_roic.iloc[-1] - hist_wacc.iloc[-1]) * 100, 'EVA (R$)': hist_eva.iloc[-1], 'EFV (R$)': efv_ultimo,
         'Crescimento Vendas (%)': df_series['Receita Liquida'].pct_change().iloc[-1] * 100 if len(df_series['Receita Liquida']) > 1 else 0,
         'Margem de Lucro (%)': (df_series['Lucro Liquido'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 100 if df_series['Receita Liquida'].iloc[-1] != 0 else 0,
         'Dívida/Patrimônio': divida_total_ultimo_ano / df_series['PL'].iloc[-1] if df_series['PL'].iloc[-1] > 0 else np.nan,
         'Prazo Cobrança (dias)': (df_series['Contas a Receber'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 365 if df_series['Receita Liquida'].iloc[-1] != 0 else np.nan,
         'Prazo Pagamento (dias)': (df_series['Fornecedores'].iloc[-1] / (df_series['EBIT'].iloc[-1] + df_series['Dep_Amort'].iloc[-1] - df_series['Lucro Liquido'].iloc[-1])) * 365 if (df_series['EBIT'].iloc[-1] + df_series['Dep_Amort'].iloc[-1] - df_series['Lucro Liquido'].iloc[-1]) != 0 else np.nan,
         'Giro Estoques (vezes)': df_series['Receita Liquida'].iloc[-1] / df_series['Estoques'].iloc[-1] if df_series['Estoques'].iloc[-1] != 0 else np.nan,
-        'ke': ke, 
-        'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
-        # Séries históricas para os gráficos
-        'hist_nopat': hist_nopat, 
-        'hist_fco': hist_fco,
-        'hist_roic': hist_roic * 100,
-        'wacc_series': hist_wacc * 100,
-        'hist_riqueza_futura_percentual': hist_riqueza_futura_percentual,
-        'hist_riqueza_atual_percentual': hist_riqueza_atual_percentual,
-        'hist_efv_percentual': hist_efv_percentual,
-        'hist_eva_percentual': hist_eva_percentual
+        'ke': ke, 'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
+        'hist_nopat': hist_nopat, 'hist_fco': hist_fco, 'hist_roic': hist_roic * 100, 'wacc_series': hist_wacc * 100,
+        'hist_riqueza_futura_percentual': hist_riqueza_futura_percentual, 'hist_riqueza_atual_percentual': hist_riqueza_atual_percentual,
+        'hist_efv_percentual': hist_efv_percentual, 'hist_eva_percentual': hist_eva_percentual
     }
     
     return resultados, "Análise concluída com sucesso."
@@ -1679,6 +1659,9 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
         else:
             sinal_final = "NEUTRO"
 
+        # Adiciona os dados brutos para o modo de depuração
+        valores_indicadores['raw_data'] = df[['RSI_14', 'MACD_12_26_9', 'MACDs_12_26_9', 'BBP_20_2.0', 'EMA_9', 'EMA_21']].tail(10)
+
         return sinal_final, score_ajustado, valores_indicadores, "N/A"
     except (RetryError, Exception) as e:
         return "Erro", 0, {"Erro": str(e)}, "NEUTRO"
@@ -1767,6 +1750,8 @@ def ui_black_scholes():
             threshold_forte = st.slider("Limiar para Sinal FORTE", 0.1, 1.0, 0.65, 0.05)
         with col_t2:
             threshold_normal = st.slider("Limiar para Sinal NORMAL", 0.1, 1.0, 0.25, 0.05)
+        
+        debug_mode = st.checkbox("Ativar Modo de Depuração da Análise Técnica")
         
         thresholds_config = {'forte': threshold_forte, 'normal': threshold_normal}
 
@@ -1862,7 +1847,13 @@ def ui_black_scholes():
 
         with st.expander("Detalhes da Análise Técnica Diária"):
             if isinstance(detalhes_tecnicos, dict):
-                st.table(pd.DataFrame.from_dict(detalhes_tecnicos, orient='index', columns=['Valor/Sinal']))
+                # Exibe a tabela de resumo
+                st.table(pd.DataFrame.from_dict({k: v for k, v in detalhes_tecnicos.items() if k != 'raw_data'}, orient='index', columns=['Valor/Sinal']))
+                
+                # Se o modo de depuração estiver ativo, mostra os dados brutos
+                if debug_mode and 'raw_data' in detalhes_tecnicos:
+                    st.markdown("##### Dados Brutos dos Indicadores (Últimos 10 dias)")
+                    st.dataframe(detalhes_tecnicos['raw_data'])
             else:
                 st.warning("Não foi possível exibir os detalhes da análise técnica.")
 
