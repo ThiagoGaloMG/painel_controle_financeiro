@@ -9,9 +9,9 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 15: Corrige os cálculos do Modelo Fleuriet para garantir valores únicos
-            por empresa, implementa a classificação de balanços (Tipos 1-6) e
-            aumenta a robustez da análise em lote para evitar interrupções.
+Versão 16: Corrige o modo de depuração da Análise Técnica, que não exibia os
+            dados dos indicadores devido a uma limpeza de dados excessivamente
+            agressiva (dropna).
 """
 
 import os
@@ -1648,7 +1648,9 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
         )
         
         df.ta.strategy(MyStrategy)
-        df.dropna(inplace=True)
+        
+        # CORREÇÃO: A linha df.dropna(inplace=True) foi removida.
+        # Ela era muito agressiva e eliminava todos os dados.
 
         if df.empty:
             return "Dados Insuficientes", 0, {"Erro": "Não foi possível calcular os indicadores."}, "NEUTRO"
