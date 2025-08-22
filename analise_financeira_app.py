@@ -9,10 +9,10 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 20: Integra a correção definitiva para o KeyError na análise técnica,
-            adotando uma abordagem de programação defensiva com validação
-            explícita dos dados e tratamento de erros aprimorado na função
-            'analise_tecnica_ativo', tornando o sistema mais robusto.
+Versão 21: Aprimora a clareza da interface na aba Black-Scholes. Adiciona uma
+            coluna de "Interpretação para Leigos" na tabela de análise técnica
+            e melhora a redação do glossário das Gregas para facilitar o
+            entendimento por parte de todos os usuários.
 """
 
 import os
@@ -1951,16 +1951,38 @@ def ui_black_scholes():
         col3.metric("Sinal Técnico (Diário)", sinal_tecnico)
 
         with st.expander("Detalhes da Análise Técnica Diária"):
-            if isinstance(detalhes_tecnicos, dict):
-                # Exibe a tabela de resumo
-                st.table(pd.DataFrame.from_dict({k: v for k, v in detalhes_tecnicos.items() if k != 'raw_data'}, orient='index', columns=['Valor/Sinal']))
+            if isinstance(detalhes_tecnicos, dict) and 'Erro' not in detalhes_tecnicos:
+                # Dicionário de interpretações para leigos
+                interpretacoes = {
+                    'RSI': "Mede a força do movimento. Abaixo de 30 indica 'sobrevenda' (potencial de alta). Acima de 70, 'sobrecompra' (potencial de baixa).",
+                    'MACD': "Indica o momento do ativo. Valores positivos sugerem momento de alta; negativos, de baixa.",
+                    'Bandas de Bollinger (%B)': "Mostra se o preço está 'caro' ou 'barato'. Abaixo de 0, o preço cruzou a banda inferior (sinal de compra). Acima de 1, cruzou a superior (sinal de venda).",
+                    'EMA (9 vs 21)': "Indica a tendência de curto prazo. 'Cruz. Alta' é um sinal otimista; 'Cruz. Baixa' é pessimista.",
+                    'ADX': "Mede a força da tendência. Acima de 25 indica uma tendência forte (seja de alta ou baixa). Abaixo de 20, uma tendência fraca ou lateral.",
+                    'Estocástico': "Similar ao RSI, mede o momento. Abaixo de 20 é 'sobrevenda' (potencial de alta), acima de 80 é 'sobrecompra' (potencial de baixa).",
+                    'SAR Parabólico': "Mostra a direção da tendência. Quando os pontos estão abaixo do preço, a tendência é de alta."
+                }
+                
+                # Prepara os dados para a tabela
+                dados_tabela = []
+                for indicador, valor in detalhes_tecnicos.items():
+                    if indicador != 'raw_data':
+                        dados_tabela.append({
+                            "Indicador": indicador,
+                            "Valor/Sinal": valor,
+                            "Interpretação para Leigos": interpretacoes.get(indicador, "Análise de tendência/momento.")
+                        })
+                
+                if dados_tabela:
+                    df_tabela = pd.DataFrame(dados_tabela)
+                    st.dataframe(df_tabela, use_container_width=True, hide_index=True)
                 
                 # Se o modo de depuração estiver ativo, mostra os dados brutos
                 if debug_mode and 'raw_data' in detalhes_tecnicos:
                     st.markdown("##### Dados Brutos dos Indicadores (Últimos 10 dias)")
                     st.dataframe(detalhes_tecnicos['raw_data'])
             else:
-                st.warning("Não foi possível exibir os detalhes da análise técnica.")
+                st.warning(f"Não foi possível exibir os detalhes da análise técnica. Motivo: {detalhes_tecnicos.get('Erro', 'desconhecido')}")
 
         
         st.divider()
@@ -2009,17 +2031,22 @@ def ui_black_scholes():
         
         with st.expander("📖 Glossário das Gregas (O que significam?)"):
             st.markdown("""
-            As "Greeks" (Gregas) medem a sensibilidade do preço de uma opção a diferentes fatores. Entendê-las ajuda a gerenciar o risco.
+            As **"Greeks" (Gregas)** são um conjunto de indicadores que medem a sensibilidade do preço de uma opção a diferentes fatores de risco. Entendê-las é fundamental para gerenciar o risco de suas operações.
 
-            - **Delta (Δ):** Mede o quanto o preço da opção muda para cada R$ 1,00 de mudança no preço do ativo. Varia de 0 a 1 para Calls e -1 a 0 para Puts. Um Delta de 0.60 significa que a opção valoriza R$ 0,60 se o ativo subir R$ 1,00.
+            - **Delta (Δ):** Mede a velocidade da opção. Indica o quanto o preço da opção tende a mudar para cada R$ 1,00 de variação no preço do ativo-objeto.
+              - *Exemplo:* Um Delta de 0.60 significa que, se a ação subir R$ 1,00, o preço da opção de compra (CALL) tende a valorizar R$ 0,60.
 
-            - **Gamma (Γ):** Mede a taxa de variação do Delta. Indica o quão rápido o Delta muda. Um Gamma alto significa que o Delta é muito sensível a mudanças no preço do ativo, o que é comum em opções "ATM" (no dinheiro).
+            - **Gamma (Γ):** Mede a aceleração do Delta. Mostra o quão rápido o Delta de uma opção muda conforme o preço do ativo-objeto se altera.
+              - *Exemplo:* Um Gamma alto significa que o Delta é muito sensível, mudando rapidamente. Isso é comum em opções "no dinheiro" (ATM) e próximas do vencimento.
 
-            - **Vega (ν):** Mede a sensibilidade do preço da opção a uma mudança de 1% na volatilidade do ativo. Se você acredita que a volatilidade vai aumentar, procure opções com Vega positivo e alto.
+            - **Vega (ν):** Mede o impacto da volatilidade. Indica o quanto o preço da opção muda para cada 1% de variação na volatilidade do ativo.
+              - *Exemplo:* Se você acredita que a volatilidade do mercado vai aumentar, deve procurar opções com Vega positivo e alto, pois elas se beneficiarão mais desse movimento.
 
-            - **Theta (Θ):** Mede a perda de valor da opção com a passagem do tempo (decaimento temporal). É quase sempre negativo, indicando que, a cada dia que passa, a opção perde um pouco de seu valor, mantendo os outros fatores constantes.
+            - **Theta (Θ):** Mede o custo do tempo. Indica o quanto o preço da opção perde de valor a cada dia que passa, devido à aproximação do vencimento (decaimento temporal).
+              - *Exemplo:* Um Theta de -0.05 significa que a opção perde R$ 0,05 de seu valor extrínseco por dia, mantendo os outros fatores constantes. É o "aluguel" que se paga por manter a posição.
 
-            - **Rho (ρ):** Mede a sensibilidade do preço da opção a uma mudança de 1% na taxa de juros livre de risco. Geralmente tem um impacto menor no preço de opções de curto prazo.
+            - **Rho (ρ):** Mede o impacto dos juros. Indica a sensibilidade do preço da opção a uma variação de 1% na taxa de juros livre de risco.
+              - *Exemplo:* Geralmente, tem um impacto menor no preço de opções de curto prazo, mas é relevante para opções de longo prazo (LEAPs).
             """)
 
 # ==============================================================================
