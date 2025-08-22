@@ -9,9 +9,10 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 13: Corrige o erro crítico 'UnboundLocalError' e 'AttributeError'.
+Versão 14: Corrige o erro crítico 'UnboundLocalError' e 'AttributeError'.
             Implementa blindagem de funções para garantir que a análise em lote
-            processe todas as empresas. Adiciona Modo de Depuração na Análise Técnica.
+            processe todas as empresas. Adiciona Modo de Depuração na Análise Técnica
+            e a classificação de balanços no Modelo Fleuriet.
 """
 
 import os
@@ -904,13 +905,11 @@ def ui_controle_financeiro():
                                         legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
-            # CORREÇÃO: Verifica se o DataFrame não está vazio antes de calcular
-            if not df_monthly.empty:
-                df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
-                fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
-                fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                                    legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
-                st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
+            df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
+            fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
+            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                                              legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+            st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
 
@@ -1326,14 +1325,21 @@ def ui_valuation():
 # ABA 3: MODELO FLEURIET
 # ==============================================================================
 
-def reclassificar_contas_fleuriet(df_bpa, df_bpp, contas_cvm):
-    """Reclassifica contas para o modelo Fleuriet a partir de DFs da CVM."""
-    aco = obter_historico_metrica(df_bpa, contas_cvm['ESTOQUES']).add(obter_historico_metrica(df_bpa, contas_cvm['CONTAS_A_RECEBER']), fill_value=0)
-    pco = obter_historico_metrica(df_bpp, contas_cvm['FORNECEDORES'])
-    ap = obter_historico_metrica(df_bpa, contas_cvm['ATIVO_NAO_CIRCULANTE'])
-    pl = obter_historico_metrica(df_bpp, contas_cvm['PATRIMONIO_LIQUIDO'])
-    pnc = obter_historico_metrica(df_bpp, contas_cvm['PASSIVO_NAO_CIRCULANTE'])
-    return aco, pco, ap, pl, pnc
+def classificar_fleuriet(cdg, ncg, t):
+    """Classifica a empresa em um dos 6 tipos do modelo Fleuriet."""
+    if cdg > 0 and ncg < 0 and t > 0:
+        return "Tipo 1 (Excelente)"
+    if cdg > 0 and ncg > 0 and t > 0:
+        return "Tipo 2 (Sólida)"
+    if cdg > 0 and ncg > 0 and t < 0:
+        return "Tipo 3 (Risco de Liquidez)"
+    if cdg < 0 and ncg > 0 and t < 0:
+        return "Tipo 4 (Alto Risco)"
+    if cdg < 0 and ncg < 0 and t < 0:
+        return "Tipo 5 (Vulnerável)"
+    if cdg < 0 and ncg < 0 and t > 0:
+        return "Tipo 6 (Incomum)"
+    return "Indefinido"
 
 def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
     """Processa a análise de saúde financeira pelos modelos Fleuriet e Z-Score de Prado."""
@@ -1403,7 +1409,12 @@ def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
         elif z_score < 2.99: classificacao = "Zona Cinzenta"
         else: classificacao = "Saudável"
             
-        return {'Ticker': ticker_sa.replace('.SA', ''), 'Empresa': info.get('longName', ticker_sa), 'Ano': t.index[-1], 'NCG': ncg.iloc[-1], 'CDG': cdg.iloc[-1], 'Tesouraria': t.iloc[-1], 'Efeito Tesoura': efeito_tesoura, 'Z-Score': z_score, 'Classificação Risco': classificacao}
+        tipo_fleuriet = classificar_fleuriet(cdg.iloc[-1], ncg.iloc[-1], t.iloc[-1])
+
+        return {'Ticker': ticker_sa.replace('.SA', ''), 'Empresa': info.get('longName', ticker_sa), 'Ano': t.index[-1], 
+                'NCG': ncg.iloc[-1], 'CDG': cdg.iloc[-1], 'Tesouraria': t.iloc[-1], 
+                'Tipo Fleuriet': tipo_fleuriet, 'Efeito Tesoura': efeito_tesoura, 
+                'Z-Score': z_score, 'Classificação Risco': classificacao}
 
     except Exception:
         # Se qualquer parte falhar, retorna None para não quebrar o loop
@@ -1450,7 +1461,9 @@ def ui_modelo_fleuriet():
             col2.metric("Efeito Tesoura", f"{tesoura_count} empresas")
             col3.metric("Alto Risco (Z-Score)", f"{risco_count} empresas")
             col4.metric("Z-Score Médio", f"{zscore_medio:.2f}")
-            st.dataframe(df_fleuriet, use_container_width=True)
+            
+            # Adiciona a nova coluna na visualização
+            st.dataframe(df_fleuriet[['Ticker', 'Empresa', 'NCG', 'CDG', 'Tesouraria', 'Tipo Fleuriet', 'Efeito Tesoura', 'Z-Score', 'Classificação Risco']], use_container_width=True)
         else:
             st.error("Nenhum resultado pôde ser gerado para a análise Fleuriet.")
             
