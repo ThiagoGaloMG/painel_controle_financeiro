@@ -9,7 +9,7 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 12: Corrige o erro crítico 'UnboundLocalError' na função Fleuriet,
+Versão 13: Corrige o erro crítico 'UnboundLocalError' na função Fleuriet,
             garantindo que a análise em lote não seja interrompida por falhas
             em tickers individuais. Aumenta a resiliência geral da aplicação.
 """
@@ -729,13 +729,11 @@ def obter_dados_mercado(periodo_ibov):
 def obter_historico_metrica(df_empresa, codigo_conta):
     """
     Extrai o histórico anual de uma conta contábil específica da CVM.
-    Filtra pela 'ÚLTIMO' ordem de exercício para pegar o dado mais recente do ano fiscal.
     """
     metric_df = df_empresa[(df_empresa['CD_CONTA'] == codigo_conta) & (df_empresa['ORDEM_EXERC'] == 'ÚLTIMO')]
     if metric_df.empty:
         return pd.Series(dtype=float)
     
-    # Tratamento para garantir que a data de referência é única por ano
     metric_df['DT_REFER'] = pd.to_datetime(metric_df['DT_REFER'])
     metric_df = metric_df.sort_values('DT_REFER').groupby(metric_df['DT_REFER'].dt.year).last()
     
@@ -750,7 +748,6 @@ def inicializar_session_state():
     """Inicializa o estado da sessão para simular um banco de dados."""
     if 'transactions' not in st.session_state:
         st.session_state.transactions = pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'])
-    # Corrigindo as categorias para refletir o comportamento desejado
     if 'categories' not in st.session_state:
         st.session_state.categories = {
             'Receita': ['Salário', 'Freelance'], 
@@ -777,7 +774,6 @@ def ui_controle_financeiro():
     
     col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
 
-    # Adiciona filtros de data e tipo com formatação DD/MM/AAAA
     data_inicio = col_filter1.date_input("Data de Início", value=datetime.now() - pd.Timedelta(days=365), format="DD/MM/YYYY")
     data_fim = col_filter2.date_input("Data de Fim", value=datetime.now(), format="DD/MM/YYYY")
     tipo_filtro = col_filter3.selectbox("Filtrar por Tipo", ["Todos", "Receita", "Despesa", "Investimento"])
@@ -787,15 +783,12 @@ def ui_controle_financeiro():
     df_trans = st.session_state.transactions.copy()
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
-        
-        # Aplica os filtros de data e tipo
         df_filtrado = df_trans[(df_trans['Data'].dt.date >= data_inicio) & (df_trans['Data'].dt.date <= data_fim)]
         if tipo_filtro != "Todos":
             df_filtrado = df_filtrado[df_filtrado['Tipo'] == tipo_filtro]
     else:
         df_filtrado = pd.DataFrame()
 
-    # Cards de resumo
     if not df_filtrado.empty:
         total_receitas = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
         total_despesas = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
@@ -813,7 +806,6 @@ def ui_controle_financeiro():
     
     st.divider()
 
-    # Lógica de input de dados
     col1, col2 = st.columns(2)
     with col1:
         with st.expander("➕ Novo Lançamento", expanded=True):
@@ -821,24 +813,17 @@ def ui_controle_financeiro():
                 data = st.date_input("Data", datetime.now(), format="DD/MM/YYYY")
                 tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
                 
-                categoria_final = None
-                sub_arca = None
-                
-                # Lógica corrigida para exibir categorias com base no tipo selecionado
                 opcoes_categoria = st.session_state.categories.get(tipo, []) + ["--- Adicionar Nova Categoria ---"]
                 categoria_selecionada = st.selectbox("Categoria", options=opcoes_categoria, key=f"cat_{tipo}")
                 
+                categoria_final = None
                 if categoria_selecionada == "--- Adicionar Nova Categoria ---":
                     nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
-                    if nova_categoria:
-                        categoria_final = nova_categoria
+                    if nova_categoria: categoria_final = nova_categoria
                 else:
                     categoria_final = categoria_selecionada
                 
-                if tipo == "Investimento":
-                    sub_arca = categoria_final
-                else:
-                    sub_arca = None
+                sub_arca = categoria_final if tipo == "Investimento" else None
                 
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 descricao = st.text_input("Descrição (opcional)")
@@ -865,16 +850,14 @@ def ui_controle_financeiro():
 
     st.subheader("Análise Histórica")
     if not df_trans.empty:
-        # Paleta de cores neon
         neon_palette = ['#00F6FF', '#39FF14', '#FF5252', '#F2A30F', '#7B2BFF']
         
-        # Gráfico ARCA
         df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
         if not df_arca.empty:
             fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", 
-                              hole=.4, color_discrete_sequence=neon_palette)
+                                hole=.4, color_discrete_sequence=neon_palette)
             fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                   legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+                                    legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             fig_arca.update_traces(textinfo='percent+label', textfont_size=14)
             st.plotly_chart(fig_arca, use_container_width=True)
         else:
@@ -882,24 +865,20 @@ def ui_controle_financeiro():
             
         st.divider()
         
-        # Filtra os dados de investimento para o período selecionado
         df_investimento_filtrado = df_trans[
             (df_trans['Tipo'] == 'Investimento') & 
             (df_trans['Data'].dt.date >= data_inicio) & 
             (df_trans['Data'].dt.date <= data_fim)
         ].copy()
 
-        # Calcula o patrimônio inicial antes do período filtrado
         patrimonio_inicial = df_trans[
             (df_trans['Data'].dt.date < data_inicio) & 
             (df_trans['Tipo'] == 'Investimento')
         ]['Valor'].sum()
         
-        # Agrupa por dia e calcula o valor acumulado para o gráfico
         df_investimento_diario = df_investimento_filtrado.set_index('Data').resample('D')['Valor'].sum().fillna(0)
         df_patrimonio_filtrado = df_investimento_diario.cumsum() + patrimonio_inicial
         
-        # O gráfico de evolução do patrimônio (Investimento)
         if not df_patrimonio_filtrado.empty:
             fig_evol_patrimonio_investimento = px.line(df_patrimonio_filtrado, 
                                                        y=df_patrimonio_filtrado.values, 
@@ -1378,7 +1357,7 @@ def reclassificar_contas_fleuriet(df_bpa, df_bpp, contas_cvm):
 
 def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
     """Processa a análise de saúde financeira pelos modelos Fleuriet e Z-Score de Prado."""
-    # CORREÇÃO: Inicializa info para evitar UnboundLocalError
+    # CORREÇÃO: Inicializa info e outras variáveis para evitar UnboundLocalError
     info = {}
     z_score, classificacao = None, "N/A"
 
