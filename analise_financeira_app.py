@@ -9,15 +9,17 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 11: Corrige erro 'cumsum' na aba de Controle Financeiro. Adiciona
-            validações robustas para lidar com falhas de rede (CVM, yfinance)
-            e previne crashes por dados ausentes.
+Versão 12: Otimiza a busca de dados da CVM com requests.Session e uma estratégia
+            de retentativa (Retry) robusta para resolver problemas de timeout
+            de conexão de forma profissional.
 """
 
 import os
 import pandas as pd
 import yfinance as yf
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from zipfile import ZipFile
 from datetime import datetime, date
 from pathlib import Path
@@ -240,18 +242,25 @@ CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] = CONFIG["DIRETORIO_BASE"] / "CVM_EXTRACTED"
 # LÓGICA DE DADOS GERAL (CVM, MERCADO, ETC.)
 # ==============================================================================
 
-# Decorador de retentativa para chamadas de rede
-retry_decorator = retry(
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    stop=stop_after_attempt(3)
-)
-
-@retry_decorator
-def robust_get_request(url, timeout=60, params=None):
-    """Função robusta para fazer requisições GET com retentativas."""
-    response = requests.get(url, timeout=timeout, params=params)
-    response.raise_for_status()
-    return response
+def requests_retry_session(
+    retries=3,
+    backoff_factor=0.3,
+    status_forcelist=(500, 502, 504),
+    session=None,
+):
+    """Cria uma sessão de requests com retentativa automática."""
+    session = session or requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
 
 @st.cache_data
 def get_stock_data(ticker_sa, period="2y", interval="1d"):
@@ -274,7 +283,8 @@ def get_stock_data(ticker_sa, period="2y", interval="1d"):
         range_map = {"2y": "2y", "5y": "5y", "1y": "1y"}
         brapi_range = range_map.get(period, "2y")
         
-        response = robust_get_request(f"https://brapi.dev/api/quote/{ticker_sem_sa}?range={brapi_range}&interval={interval}")
+        response = requests_retry_session().get(f"https://brapi.dev/api/quote/{ticker_sem_sa}?range={brapi_range}&interval={interval}")
+        response.raise_for_status()
         data = response.json()
         
         if 'results' in data and data['results']:
@@ -297,7 +307,8 @@ def get_stock_data(ticker_sa, period="2y", interval="1d"):
             "outputsize": "full",
             "apikey": ALPHA_VANTAGE_API_KEY
         }
-        response = robust_get_request("https://www.alphavantage.co/query", params=params)
+        response = requests_retry_session().get("https://www.alphavantage.co/query", params=params)
+        response.raise_for_status()
         data = response.json()
         
         if "Time Series (Daily)" in data:
@@ -342,7 +353,8 @@ def preparar_dados_cvm(anos_historico):
             url_zip = f'{CONFIG["URL_BASE_CVM"]}{nome_zip}'
 
             try:
-                response = robust_get_request(url_zip)
+                response = requests_retry_session().get(url_zip, timeout=60)
+                response.raise_for_status()
                 zip_buffer = io.BytesIO(response.content)
 
                 with ZipFile(zip_buffer, 'r') as z:
@@ -357,7 +369,7 @@ def preparar_dados_cvm(anos_historico):
                         else:
                             st.warning(f"Arquivo {nome_arquivo_csv} não encontrado no zip do ano {ano}.")
 
-            except RetryError as e:
+            except requests.exceptions.RequestException as e:
                 st.error(f"Falha ao baixar dados da CVM para o ano {ano} após múltiplas tentativas. Servidor pode estar offline. Erro: {e}")
                 continue
             except Exception as e:
@@ -642,10 +654,10 @@ def carregar_mapeamento_ticker_cvm():
 23280;VITT3;VITTIA FERTILIZANTES E BIOLOGICOS S.A.
 23280;VIVA3;VIVARA PARTICIPACOES S.A.
 23280;VIVT3;TELEFONICA BRASIL S.A.
-23280;VLID3;VALID SOLUcoes S.A.
+23280;VLID3;VALID SOLUCOES S.A.
 23280;VULC3;VULCABRAS S.A.
 23280;WEGE3;WEG S.A.
-23280;WIZS3;WIZ SOLucoes E CORRETAGEM DE SEGUROS S.A.
+23280;WIZS3;WIZ SOLUCOES E CORRETAGEM DE SEGUROS S.A.
 23280;YDUQ3;YDUQS PARTICIPACOES S.A.
 25801;REDE3;REDE ENERGIA PARTICIPAÇÕES S.A.
 25810;GGPS3;GPS PARTICIPAÇÕES E EMPREENDIMENTOS S.A.
@@ -682,13 +694,17 @@ def carregar_mapeamento_ticker_cvm():
         st.error(f"Falha ao carregar o mapeamento de tickers. Erro: {e}")
         return pd.DataFrame()
 
-@retry_decorator
+@retry(wait=wait_exponential(multiplier=1, min=4, max=10), stop=stop_after_attempt(3))
 def consulta_bc(codigo_bcb):
     """Consulta a API do Banco Central para obter dados como a taxa Selic."""
-    url = f'https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo_bcb}/dados/ultimos/1?formato=json'
-    response = robust_get_request(url, timeout=10)
-    data = response.json()
-    return float(data[0]['valor']) / 100.0 if data else None
+    try:
+        url = f'https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo_bcb}/dados/ultimos/1?formato=json'
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        return float(data[0]['valor']) / 100.0 if data else None
+    except Exception as e:
+        raise Exception(f"Erro ao consultar a API do Banco Central. Código: {codigo_bcb}. Erro: {e}")
 
 @st.cache_data(show_spinner=False)
 def obter_dados_mercado(periodo_ibov):
@@ -696,19 +712,16 @@ def obter_dados_mercado(periodo_ibov):
     with st.spinner("Buscando dados de mercado (Selic, Ibovespa)..."):
         try:
             selic_anual = consulta_bc(1178)
-        except RetryError:
-            st.warning("Não foi possível buscar a taxa Selic do Banco Central. Usando valor padrão.")
+        except Exception:
             selic_anual = None
         
         risk_free_rate = selic_anual if selic_anual is not None else 0.105
         
-        ibov = get_stock_data('^BVSP', period=periodo_ibov)
-        if ibov is None or ibov.empty:
-            st.warning("Não foi possível buscar dados do Ibovespa. Usando valores padrão.")
-            ibov = pd.DataFrame() # Cria um DF vazio para evitar erros
-            retorno_anual_mercado = 0.12
+        ibov = yf.download('^BVSP', period=periodo_ibov, progress=False)
+        if not ibov.empty and 'Adj Close' in ibov.columns:
+            retorno_anual_mercado = ((1 + ibov['Adj Close'].pct_change().mean()) ** 252) - 1
         else:
-            retorno_anual_mercado = ((1 + ibov['adj close'].pct_change().mean()) ** 252) - 1
+            retorno_anual_mercado = 0.12
             
         premio_risco_mercado = retorno_anual_mercado - risk_free_rate
     return risk_free_rate, retorno_anual_mercado, premio_risco_mercado, ibov
@@ -716,11 +729,13 @@ def obter_dados_mercado(periodo_ibov):
 def obter_historico_metrica(df_empresa, codigo_conta):
     """
     Extrai o histórico anual de uma conta contábil específica da CVM.
+    Filtra pela 'ÚLTIMO' ordem de exercício para pegar o dado mais recente do ano fiscal.
     """
     metric_df = df_empresa[(df_empresa['CD_CONTA'] == codigo_conta) & (df_empresa['ORDEM_EXERC'] == 'ÚLTIMO')]
     if metric_df.empty:
         return pd.Series(dtype=float)
     
+    # Tratamento para garantir que a data de referência é única por ano
     metric_df['DT_REFER'] = pd.to_datetime(metric_df['DT_REFER'])
     metric_df = metric_df.sort_values('DT_REFER').groupby(metric_df['DT_REFER'].dt.year).last()
     
@@ -735,6 +750,7 @@ def inicializar_session_state():
     """Inicializa o estado da sessão para simular um banco de dados."""
     if 'transactions' not in st.session_state:
         st.session_state.transactions = pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'])
+    # Corrigindo as categorias para refletir o comportamento desejado
     if 'categories' not in st.session_state:
         st.session_state.categories = {
             'Receita': ['Salário', 'Freelance'], 
@@ -761,6 +777,7 @@ def ui_controle_financeiro():
     
     col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
 
+    # Adiciona filtros de data e tipo com formatação DD/MM/AAAA
     data_inicio = col_filter1.date_input("Data de Início", value=datetime.now() - pd.Timedelta(days=365), format="DD/MM/YYYY")
     data_fim = col_filter2.date_input("Data de Fim", value=datetime.now(), format="DD/MM/YYYY")
     tipo_filtro = col_filter3.selectbox("Filtrar por Tipo", ["Todos", "Receita", "Despesa", "Investimento"])
@@ -770,12 +787,15 @@ def ui_controle_financeiro():
     df_trans = st.session_state.transactions.copy()
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+        
+        # Aplica os filtros de data e tipo
         df_filtrado = df_trans[(df_trans['Data'].dt.date >= data_inicio) & (df_trans['Data'].dt.date <= data_fim)]
         if tipo_filtro != "Todos":
             df_filtrado = df_filtrado[df_filtrado['Tipo'] == tipo_filtro]
     else:
         df_filtrado = pd.DataFrame()
 
+    # Cards de resumo
     if not df_filtrado.empty:
         total_receitas = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
         total_despesas = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
@@ -793,6 +813,7 @@ def ui_controle_financeiro():
     
     st.divider()
 
+    # Lógica de input de dados
     col1, col2 = st.columns(2)
     with col1:
         with st.expander("➕ Novo Lançamento", expanded=True):
@@ -800,17 +821,24 @@ def ui_controle_financeiro():
                 data = st.date_input("Data", datetime.now(), format="DD/MM/YYYY")
                 tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
                 
+                categoria_final = None
+                sub_arca = None
+                
+                # Lógica corrigida para exibir categorias com base no tipo selecionado
                 opcoes_categoria = st.session_state.categories.get(tipo, []) + ["--- Adicionar Nova Categoria ---"]
                 categoria_selecionada = st.selectbox("Categoria", options=opcoes_categoria, key=f"cat_{tipo}")
                 
-                categoria_final = None
                 if categoria_selecionada == "--- Adicionar Nova Categoria ---":
                     nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
-                    if nova_categoria: categoria_final = nova_categoria
+                    if nova_categoria:
+                        categoria_final = nova_categoria
                 else:
                     categoria_final = categoria_selecionada
                 
-                sub_arca = categoria_final if tipo == "Investimento" else None
+                if tipo == "Investimento":
+                    sub_arca = categoria_final
+                else:
+                    sub_arca = None
                 
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 descricao = st.text_input("Descrição (opcional)")
@@ -837,14 +865,16 @@ def ui_controle_financeiro():
 
     st.subheader("Análise Histórica")
     if not df_trans.empty:
+        # Paleta de cores neon
         neon_palette = ['#00F6FF', '#39FF14', '#FF5252', '#F2A30F', '#7B2BFF']
         
+        # Gráfico ARCA
         df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
         if not df_arca.empty:
             fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", 
-                                hole=.4, color_discrete_sequence=neon_palette)
+                              hole=.4, color_discrete_sequence=neon_palette)
             fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                    legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+                                   legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             fig_arca.update_traces(textinfo='percent+label', textfont_size=14)
             st.plotly_chart(fig_arca, use_container_width=True)
         else:
@@ -852,52 +882,54 @@ def ui_controle_financeiro():
             
         st.divider()
         
+        # Filtra os dados de investimento para o período selecionado
         df_investimento_filtrado = df_trans[
             (df_trans['Tipo'] == 'Investimento') & 
             (df_trans['Data'].dt.date >= data_inicio) & 
             (df_trans['Data'].dt.date <= data_fim)
         ].copy()
 
+        # Calcula o patrimônio inicial antes do período filtrado
         patrimonio_inicial = df_trans[
             (df_trans['Data'].dt.date < data_inicio) & 
             (df_trans['Tipo'] == 'Investimento')
         ]['Valor'].sum()
         
+        # Agrupa por dia e calcula o valor acumulado para o gráfico
         df_investimento_diario = df_investimento_filtrado.set_index('Data').resample('D')['Valor'].sum().fillna(0)
         df_patrimonio_filtrado = df_investimento_diario.cumsum() + patrimonio_inicial
         
+        # O gráfico de evolução do patrimônio (Investimento)
         if not df_patrimonio_filtrado.empty:
             fig_evol_patrimonio_investimento = px.line(df_patrimonio_filtrado, 
-                                                        y=df_patrimonio_filtrado.values, 
-                                                        title="Evolução do Patrimônio (Investimentos)", 
-                                                        labels={'index': 'Data', 'y': 'Patrimônio Total'},
-                                                        markers=True, 
-                                                        template="plotly_dark")
+                                                       y=df_patrimonio_filtrado.values, 
+                                                       title="Evolução do Patrimônio (Investimentos)", 
+                                                       labels={'index': 'Data', 'y': 'Patrimônio Total'},
+                                                       markers=True, 
+                                                       template="plotly_dark")
             fig_evol_patrimonio_investimento.update_layout(paper_bgcolor='rgba(0,0,0,0)', 
-                                                            plot_bgcolor='rgba(0,0,0,0)', 
-                                                            font_color='var(--text-color)', 
-                                                            title_font_color='var(--header-color)',
-                                                            yaxis_title='Patrimônio Total (R$)')
+                                                           plot_bgcolor='rgba(0,0,0,0)', 
+                                                           font_color='var(--text-color)', 
+                                                           title_font_color='var(--header-color)',
+                                                           yaxis_title='Patrimônio Total (R$)')
             st.plotly_chart(fig_evol_patrimonio_investimento, use_container_width=True)
 
         col1, col2 = st.columns(2)
         with col1:
             df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
             fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, 
-                                    y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], 
-                                    title="Evolução Mensal por Tipo", barmode='group', 
-                                    color_discrete_map={'Receita': '#00F6FF', 'Despesa': '#FF5252', 'Investimento': '#39FF14'})
+                                   y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], 
+                                   title="Evolução Mensal por Tipo", barmode='group', 
+                                   color_discrete_map={'Receita': '#00F6FF', 'Despesa': '#FF5252', 'Investimento': '#39FF14'})
             fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
                                         legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
-            # CORREÇÃO: Verifica se o DataFrame não está vazio antes de calcular
-            if not df_monthly.empty:
-                df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
-                fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
-                fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                                    legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
-                st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
+            df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
+            fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
+            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                                              legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+            st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
 
@@ -938,11 +970,12 @@ def ui_controle_financeiro():
 # ==============================================================================
 def calcular_beta(ticker, ibov_data, periodo_beta):
     """Calcula o Beta de uma ação em relação ao Ibovespa de forma robusta."""
-    dados_acao = get_stock_data(ticker, period=periodo_beta)
-    if dados_acao is None or dados_acao.empty or ibov_data is None or ibov_data.empty:
+    dados_acao = yf.download(ticker, period=periodo_beta, progress=False, auto_adjust=True)['Close']
+    if dados_acao.empty:
         return 1.0
 
-    dados_combinados = pd.merge(dados_acao['close'], ibov_data['adj close'], left_index=True, right_index=True, suffixes=('_acao', '_ibov')).dropna()
+    # Alinha os dataframes usando merge para garantir consistência
+    dados_combinados = pd.merge(dados_acao, ibov_data['Close'], left_index=True, right_index=True, suffixes=('_acao', '_ibov')).dropna()
     
     retornos_mensais = dados_combinados.resample('M').ffill().pct_change().dropna()
 
@@ -973,24 +1006,23 @@ def calcular_beta_hamada(ticker, ibov_data, periodo_beta, imposto, divida_total,
 def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_data, params):
     """
     Executa a análise de valuation de uma única empresa, calculando EVA, EFV, WACC, etc.
+    Calcula as métricas de forma histórica para a visualização da evolução.
     """
     (risk_free_rate, _, premio_risco_mercado, ibov_data) = market_data
 
+    # Acesso seguro aos dados do demonstrativo para evitar o KeyError
     dre = demonstrativos.get('dre', pd.DataFrame())
     bpa = demonstrativos.get('bpa', pd.DataFrame())
     bpp = demonstrativos.get('bpp', pd.DataFrame())
     dfc = demonstrativos.get('dfc_mi', pd.DataFrame())
     
-    if dre.empty or bpa.empty or bpp.empty or dfc.empty:
-        return None, "Dados da CVM não puderam ser baixados. Análise de valuation impossível."
-
-    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm]
-    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm]
-    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm]
-    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm]
+    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm] if not dre.empty else pd.DataFrame()
+    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm] if not bpa.empty else pd.DataFrame()
+    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm] if not bpp.empty else pd.DataFrame()
+    empresa_dfc = dfc[dfc['CD_CVM'] == codigo_cvm] if not dfc.empty else pd.DataFrame()
     
     if any(df.empty for df in [empresa_dre, empresa_bpa, empresa_bpp, empresa_dfc]):
-        return None, "Dados CVM históricos incompletos ou inexistentes para este ticker."
+        return None, "Dados CVM históricos incompletos ou inexistentes."
     
     try:
         info = yf.Ticker(ticker_sa).info
@@ -1027,22 +1059,27 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if hist_lai.sum() == 0 or hist_ebit.empty:
         return None, "Dados de Lucro/EBIT insuficientes para calcular a alíquota de imposto."
 
+    # Cálculo da alíquota efetiva (média)
     aliquota_efetiva = abs(hist_impostos.sum()) / abs(hist_lai.sum()) if hist_lai.sum() != 0 else 0
     
+    # Cálculo das séries históricas
     hist_nopat = hist_ebit * (1 - aliquota_efetiva)
     hist_fco = hist_nopat.add(hist_dep_amort, fill_value=0)
     hist_ncg = hist_contas_a_receber.add(hist_estoques, fill_value=0).subtract(hist_fornecedores, fill_value=0)
     hist_capital_empregado = hist_ncg.add(hist_ativo_imobilizado, fill_value=0).add(hist_ativo_intangivel, fill_value=0)
     
+    # Garantir que as séries tenham o mesmo índice (anos)
     df_series = pd.concat([hist_nopat, hist_fco, hist_capital_empregado, hist_divida_cp, hist_divida_lp, hist_desp_financeira, hist_pl_total, hist_rec_liquida, hist_lucro_liquido, hist_contas_a_receber, hist_estoques, hist_fornecedores, hist_ebit, hist_dep_amort], axis=1).dropna()
     df_series.columns = ['NOPAT', 'FCO', 'Capital Empregado', 'Divida CP', 'Divida LP', 'Despesas Financeiras', 'PL', 'Receita Liquida', 'Lucro Liquido', 'Contas a Receber', 'Estoques', 'Fornecedores', 'EBIT', 'Dep_Amort']
 
     if df_series.empty:
         return None, "Séries históricas incompletas para os cálculos anuais."
     
+    # Cálculo de métricas históricas
     hist_divida_total = df_series['Divida CP'] + df_series['Divida LP']
     hist_roic = (df_series['NOPAT'] / df_series['Capital Empregado'])
     
+    # Cálculo do Beta e WACC (para fins de exibição e cálculo de perp.)
     divida_total_ultimo_ano = hist_divida_total.iloc[-1]
     
     beta_hamada = calcular_beta_hamada(ticker_sa, ibov_data, params['periodo_beta_ibov'], aliquota_efetiva, divida_total_ultimo_ano, market_cap)
@@ -1053,37 +1090,55 @@ def processar_valuation_empresa(ticker_sa, codigo_cvm, demonstrativos, market_da
     if wacc_medio <= params['taxa_crescimento_perpetuidade'] or pd.isna(wacc_medio):
         return None, "WACC inválido ou menor/igual à taxa de crescimento na perpetuidade. Ajuste os parâmetros."
 
-    hist_wacc = pd.Series([wacc_medio] * len(df_series.index), index=df_series.index)
+    hist_wacc = pd.Series([wacc_medio] * len(df_series.index), index=df_series.index) # WACC é considerado constante no histórico
     
     hist_eva = (hist_roic - hist_wacc) * df_series['Capital Empregado']
     hist_riqueza_atual = hist_eva / hist_wacc
     
+    # Para Riqueza Futura e EFV, usamos a premissa de que o Market Cap está no último ano
     riqueza_futura_esperada_ultimo = market_cap + divida_total_ultimo_ano - df_series['Capital Empregado'].iloc[-1]
     efv_ultimo = riqueza_futura_esperada_ultimo - hist_riqueza_atual.iloc[-1]
 
+    # Criação das séries históricas PERCENTUAIS
     hist_riqueza_futura_percentual = ((pd.Series([riqueza_futura_esperada_ultimo] * len(df_series.index), index=df_series.index) / df_series['Capital Empregado']) - 1) * 100
     hist_riqueza_atual_percentual = (hist_riqueza_atual / df_series['Capital Empregado']) * 100
     hist_efv_percentual = (hist_riqueza_futura_percentual - hist_riqueza_atual_percentual)
     hist_eva_percentual = (hist_eva / df_series['Capital Empregado']) * 100
     
+    # Dicionário de resultados para o último ano (para exibição principal)
     resultados = {
-        'Empresa': nome_empresa, 'Ticker': ticker_sa.replace('.SA', ''), 'Preço Atual (R$)': preco_atual, 
+        'Empresa': nome_empresa, 
+        'Ticker': ticker_sa.replace('.SA', ''), 
+        'Preço Atual (R$)': preco_atual, 
         'Preço Justo (R$)': (riqueza_futura_esperada_ultimo + df_series['Capital Empregado'].iloc[-1] - divida_total_ultimo_ano) / n_acoes if n_acoes > 0 else 0, 
         'Margem Segurança (%)': ((riqueza_futura_esperada_ultimo + df_series['Capital Empregado'].iloc[-1] - divida_total_ultimo_ano) / n_acoes / preco_atual - 1) * 100 if n_acoes > 0 and preco_atual > 0 else -100, 
-        'Market Cap (R$)': market_cap, 'Capital Empregado (R$)': df_series['Capital Empregado'].iloc[-1], 
-        'Dívida Total (R$)': divida_total_ultimo_ano, 'NOPAT Médio (R$)': df_series['NOPAT'].tail(params['media_anos_calculo']).mean(), 
-        'ROIC (%)': hist_roic.iloc[-1] * 100, 'Beta': beta_hamada, 'Custo do Capital (WACC %)': wacc_medio * 100, 
-        'Spread (ROIC-WACC %)': (hist_roic.iloc[-1] - hist_wacc.iloc[-1]) * 100, 'EVA (R$)': hist_eva.iloc[-1], 'EFV (R$)': efv_ultimo,
+        'Market Cap (R$)': market_cap, 
+        'Capital Empregado (R$)': df_series['Capital Empregado'].iloc[-1], 
+        'Dívida Total (R$)': divida_total_ultimo_ano, 
+        'NOPAT Médio (R$)': df_series['NOPAT'].tail(params['media_anos_calculo']).mean(), 
+        'ROIC (%)': hist_roic.iloc[-1] * 100, 
+        'Beta': beta_hamada, 
+        'Custo do Capital (WACC %)': wacc_medio * 100, 
+        'Spread (ROIC-WACC %)': (hist_roic.iloc[-1] - hist_wacc.iloc[-1]) * 100, 
+        'EVA (R$)': hist_eva.iloc[-1], 
+        'EFV (R$)': efv_ultimo,
         'Crescimento Vendas (%)': df_series['Receita Liquida'].pct_change().iloc[-1] * 100 if len(df_series['Receita Liquida']) > 1 else 0,
         'Margem de Lucro (%)': (df_series['Lucro Liquido'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 100 if df_series['Receita Liquida'].iloc[-1] != 0 else 0,
         'Dívida/Patrimônio': divida_total_ultimo_ano / df_series['PL'].iloc[-1] if df_series['PL'].iloc[-1] > 0 else np.nan,
         'Prazo Cobrança (dias)': (df_series['Contas a Receber'].iloc[-1] / df_series['Receita Liquida'].iloc[-1]) * 365 if df_series['Receita Liquida'].iloc[-1] != 0 else np.nan,
         'Prazo Pagamento (dias)': (df_series['Fornecedores'].iloc[-1] / (df_series['EBIT'].iloc[-1] + df_series['Dep_Amort'].iloc[-1] - df_series['Lucro Liquido'].iloc[-1])) * 365 if (df_series['EBIT'].iloc[-1] + df_series['Dep_Amort'].iloc[-1] - df_series['Lucro Liquido'].iloc[-1]) != 0 else np.nan,
         'Giro Estoques (vezes)': df_series['Receita Liquida'].iloc[-1] / df_series['Estoques'].iloc[-1] if df_series['Estoques'].iloc[-1] != 0 else np.nan,
-        'ke': ke, 'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
-        'hist_nopat': hist_nopat, 'hist_fco': hist_fco, 'hist_roic': hist_roic * 100, 'wacc_series': hist_wacc * 100,
-        'hist_riqueza_futura_percentual': hist_riqueza_futura_percentual, 'hist_riqueza_atual_percentual': hist_riqueza_atual_percentual,
-        'hist_efv_percentual': hist_efv_percentual, 'hist_eva_percentual': hist_eva_percentual
+        'ke': ke, 
+        'kd': df_series['Despesas Financeiras'].mean() / divida_total_ultimo_ano if divida_total_ultimo_ano > 0 else 0,
+        # Séries históricas para os gráficos
+        'hist_nopat': hist_nopat, 
+        'hist_fco': hist_fco,
+        'hist_roic': hist_roic * 100,
+        'wacc_series': hist_wacc * 100,
+        'hist_riqueza_futura_percentual': hist_riqueza_futura_percentual,
+        'hist_riqueza_atual_percentual': hist_riqueza_atual_percentual,
+        'hist_efv_percentual': hist_efv_percentual,
+        'hist_eva_percentual': hist_eva_percentual
     }
     
     return resultados, "Análise concluída com sucesso."
@@ -1472,7 +1527,8 @@ def buscar_opcoes(ticker, vencimento):
     """Busca a cadeia de opções para um ticker e vencimento específicos."""
     try:
         url = f'https://opcoes.net.br/listaopcoes/completa?idAcao={ticker}&listarVencimentos=false&cotacoes=true&vencimentos={vencimento}'
-        response = robust_get_request(url, timeout=20)
+        response = requests_retry_session().get(url, timeout=20)
+        response.raise_for_status()
         dados = response.json()
         if 'data' in dados and 'cotacoesOpcoes' in dados['data']:
             opcoes = [[ticker, vencimento, i[0].split('_')[0], i[2], i[3], i[5], i[8]] for i in dados['data']['cotacoesOpcoes']]
