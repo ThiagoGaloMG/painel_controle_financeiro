@@ -1308,10 +1308,7 @@ def ui_valuation():
                 st.error(f"Não foi possível analisar {ticker_selecionado}. Motivo: {status_msg}")
 
     with tab_ranking:
-        st.info("""
-        Esta análise processa todas as empresas da lista, o que pode levar vários minutos.
-        **Nota:** O número de empresas processadas com sucesso pode ser menor que o total. Isso ocorre porque muitas empresas podem não ter dados financeiros completos na CVM ou dados de mercado disponíveis para o período analisado, sendo automaticamente descartadas para garantir a precisão dos resultados.
-        """)
+        st.info("Esta análise processa todas as empresas da lista, o que pode levar vários minutos.")
         if st.button("🚀 Iniciar Análise Completa e Gerar Rankings", type="primary", use_container_width=True):
             params_ranking = {'taxa_crescimento_perpetuidade': CONFIG["TAXA_CRESCIMENTO_PERPETUIDADE"], 'media_anos_calculo': CONFIG["MEDIA_ANOS_CALCULO"], 'periodo_beta_ibov': CONFIG["PERIODO_BETA_IBOV"]}
             demonstrativos = preparar_dados_cvm(CONFIG["HISTORICO_ANOS_CVM"])
