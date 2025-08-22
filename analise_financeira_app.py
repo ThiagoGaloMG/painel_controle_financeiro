@@ -9,9 +9,9 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 12: Otimiza a busca de dados da CVM com requests.Session e uma estratégia
-            de retentativa (Retry) robusta para resolver problemas de timeout
-            de conexão de forma profissional.
+Versão 12: Corrige o erro crítico 'UnboundLocalError' na função Fleuriet,
+            garantindo que a análise em lote não seja interrompida por falhas
+            em tickers individuais. Aumenta a resiliência geral da aplicação.
 """
 
 import os
@@ -1378,45 +1378,46 @@ def reclassificar_contas_fleuriet(df_bpa, df_bpp, contas_cvm):
 
 def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
     """Processa a análise de saúde financeira pelos modelos Fleuriet e Z-Score de Prado."""
-    C = CONFIG['CONTAS_CVM']
-    bpa = demonstrativos.get('bpa', pd.DataFrame())
-    bpp = demonstrativos.get('bpp', pd.DataFrame())
-    dre = demonstrativos.get('dre', pd.DataFrame())
+    # CORREÇÃO: Inicializa info para evitar UnboundLocalError
+    info = {}
+    z_score, classificacao = None, "N/A"
 
-    empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm] if not bpa.empty else pd.DataFrame()
-    empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm] if not bpp.empty else pd.DataFrame()
-    empresa_dre = dre[dre['CD_CVM'] == codigo_cvm] if not dre.empty else pd.DataFrame()
-    
-    if any(df.empty for df in [empresa_bpa, empresa_bpp, empresa_dre]):
-        return None
-    
-    aco, pco, ap, pl, pnc = reclassificar_contas_fleuriet(empresa_bpa, empresa_bpp, C)
-    
-    if any(s.empty for s in [aco, pco, ap, pl, pnc]):
-        return None
-
-    # Cálculo do Modelo de Fleuriet
-    ncg = aco.subtract(pco, fill_value=0)
-    cdg = pl.add(pnc, fill_value=0).subtract(ap, fill_value=0)
-    t = cdg.subtract(ncg, fill_value=0)
-    
-    # Validação para evitar erro de iloc
-    if t.empty or ncg.empty or cdg.empty:
-        return None
-
-    efeito_tesoura = False
-    if len(ncg) > 1 and len(cdg) > 1:
-        cresc_ncg = ncg.pct_change().iloc[-1]
-        cresc_cdg = cdg.pct_change().iloc[-1]
-        if pd.notna(cresc_ncg) and pd.notna(cresc_cdg) and cresc_ncg > cresc_cdg and t.iloc[-1] < 0:
-            efeito_tesoura = True
-            
     try:
-        # Cálculo do Z-Score de Prado conforme o TCC
+        C = CONFIG['CONTAS_CVM']
+        bpa = demonstrativos.get('bpa', pd.DataFrame())
+        bpp = demonstrativos.get('bpp', pd.DataFrame())
+        dre = demonstrativos.get('dre', pd.DataFrame())
+
+        empresa_bpa = bpa[bpa['CD_CVM'] == codigo_cvm] if not bpa.empty else pd.DataFrame()
+        empresa_bpp = bpp[bpp['CD_CVM'] == codigo_cvm] if not bpp.empty else pd.DataFrame()
+        empresa_dre = dre[dre['CD_CVM'] == codigo_cvm] if not dre.empty else pd.DataFrame()
+        
+        if any(df.empty for df in [empresa_bpa, empresa_bpp, empresa_dre]):
+            return None
+        
+        aco, pco, ap, pl, pnc = reclassificar_contas_fleuriet(empresa_bpa, empresa_bpp, C)
+        
+        if any(s.empty for s in [aco, pco, ap, pl, pnc]):
+            return None
+
+        ncg = aco.subtract(pco, fill_value=0)
+        cdg = pl.add(pnc, fill_value=0).subtract(ap, fill_value=0)
+        t = cdg.subtract(ncg, fill_value=0)
+        
+        if t.empty or ncg.empty or cdg.empty:
+            return None
+
+        efeito_tesoura = False
+        if len(ncg) > 1 and len(cdg) > 1:
+            cresc_ncg = ncg.pct_change().iloc[-1]
+            cresc_cdg = cdg.pct_change().iloc[-1]
+            if pd.notna(cresc_ncg) and pd.notna(cresc_cdg) and cresc_ncg > cresc_cdg and t.iloc[-1] < 0:
+                efeito_tesoura = True
+                
+        # Bloco de busca de dados de mercado
         info = yf.Ticker(ticker_sa).info
         market_cap = info.get('marketCap', 0)
         
-        # Validação de dados históricos antes de usar .iloc
         ativo_total_hist = obter_historico_metrica(empresa_bpa, C['ATIVO_TOTAL'])
         passivo_total_hist = obter_historico_metrica(empresa_bpp, C['PASSIVO_TOTAL'])
         ebit_hist = obter_historico_metrica(empresa_dre, C['EBIT'])
@@ -1437,20 +1438,18 @@ def processar_analise_fleuriet(ticker_sa, codigo_cvm, demonstrativos):
         X4 = market_cap / passivo_total if passivo_total > 0 else 0
         X5 = vendas / ativo_total
         
-        # Coeficientes específicos do Z-Score de Prado conforme o TCC
         z_score = 0.038*X1 + 1.253*X2 + 2.331*X3 + 0.511*X4 + 0.824*X5
         
-        if z_score < 1.81:
-            classificacao = "Risco Elevado"
-        elif z_score < 2.99:
-            classificacao = "Zona Cinzenta"
-        else:
-            classificacao = "Saudável"
+        if z_score < 1.81: classificacao = "Risco Elevado"
+        elif z_score < 2.99: classificacao = "Zona Cinzenta"
+        else: classificacao = "Saudável"
             
-    except (Exception, IndexError):
-        z_score, classificacao = None, "Erro no cálculo"
+        return {'Ticker': ticker_sa.replace('.SA', ''), 'Empresa': info.get('longName', ticker_sa), 'Ano': t.index[-1], 'NCG': ncg.iloc[-1], 'CDG': cdg.iloc[-1], 'Tesouraria': t.iloc[-1], 'Efeito Tesoura': efeito_tesoura, 'Z-Score': z_score, 'Classificação Risco': classificacao}
 
-    return {'Ticker': ticker_sa.replace('.SA', ''), 'Empresa': info.get('longName', ticker_sa), 'Ano': t.index[-1], 'NCG': ncg.iloc[-1], 'CDG': cdg.iloc[-1], 'Tesouraria': t.iloc[-1], 'Efeito Tesoura': efeito_tesoura, 'Z-Score': z_score, 'Classificação Risco': classificacao}
+    except Exception:
+        # Se qualquer parte falhar, retorna None para não quebrar o loop
+        return None
+
 
 def ui_modelo_fleuriet():
     """Renderiza a interface completa da aba do Modelo Fleuriet."""
