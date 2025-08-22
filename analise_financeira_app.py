@@ -9,10 +9,10 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 19: Corrige a função 'carregar_mapeamento_ticker_cvm' para utilizar a
-            lista de mapeamento definitiva e correta, eliminando a repetição
-            de códigos CVM para empresas diferentes. Corrige também o KeyError
-            na análise técnica e adiciona notas explicativas sobre a análise em lote.
+Versão 20: Integra a correção definitiva para o KeyError na análise técnica,
+            adotando uma abordagem de programação defensiva com validação
+            explícita dos dados e tratamento de erros aprimorado na função
+            'analise_tecnica_ativo', tornando o sistema mais robusto.
 """
 
 import os
@@ -33,6 +33,8 @@ import plotly.graph_objects as go
 from tenacity import retry, wait_exponential, stop_after_attempt, RetryError
 from scipy.stats import norm
 import pandas_ta as ta
+import logging
+from typing import Dict, Any
 
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
@@ -900,11 +902,11 @@ def ui_controle_financeiro():
         with col1:
             df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
             fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, 
-                                y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], 
-                                title="Evolução Mensal por Tipo", barmode='group', 
-                                color_discrete_map={'Receita': '#00F6FF', 'Despesa': '#FF5252', 'Investimento': '#39FF14'})
+                                    y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], 
+                                    title="Evolução Mensal por Tipo", barmode='group', 
+                                    color_discrete_map={'Receita': '#00F6FF', 'Despesa': '#FF5252', 'Investimento': '#39FF14'})
             fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                            legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+                                        legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col2:
             df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
@@ -1526,10 +1528,10 @@ def ui_modelo_fleuriet():
             # Botão de download
             csv_fleuriet = convert_df_to_csv(df_fleuriet)
             st.download_button(
-               label="📥 Baixar Resultados Completos (.csv)",
-               data=csv_fleuriet,
-               file_name='analise_fleuriet_completa.csv',
-               mime='text/csv',
+                label="📥 Baixar Resultados Completos (.csv)",
+                data=csv_fleuriet,
+                file_name='analise_fleuriet_completa.csv',
+                mime='text/csv',
             )
             
         else:
@@ -1627,129 +1629,121 @@ def calcular_greeks(S, K, T, r, sigma, option_type="call"):
 def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=None):
     """
     Realiza a análise técnica completa e retorna um score de convergência.
+    Versão robustecida para evitar KeyErrors e lidar com dados insuficientes.
     """
     if thresholds is None:
         thresholds = {'forte': 0.7, 'normal': 0.2}
 
     try:
+        # 1. Obtenção de Dados
         if timeframe == 'weekly':
             df = get_stock_data(ticker, period="5y", interval="1wk")
-        else: 
+        else:
             df = get_stock_data(ticker, period="2y", interval="1d")
 
         if df is None or df.empty:
             return "Dados Insuficientes", 0, {"Erro": "Dados históricos indisponíveis."}, "NEUTRO"
-            
+
+        # Garante que não há MultiIndex
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(0)
 
+        # 2. Validação de Dados de Entrada
+        min_periods_required = 20  # O indicador com maior período é o BBands(20)
+        if len(df) < min_periods_required:
+            msg = f"São necessários pelo menos {min_periods_required} pontos de dados, mas apenas {len(df)} foram encontrados."
+            return "Dados Insuficientes", 0, {"Erro": msg}, "NEUTRO"
+
+        # 3. Cálculo dos Indicadores
         MyStrategy = ta.Strategy(
             name="Convergencia_Opcoes",
             description="RSI, MACD, BBANDS, EMA, ADX, STOCH, PSAR",
             ta=[
-                {"kind": "rsi"}, {"kind": "macd"}, {"kind": "bbands"},
+                {"kind": "rsi"}, {"kind": "macd"}, {"kind": "bbands", "length": 20},
                 {"kind": "ema", "length": 9}, {"kind": "ema", "length": 21},
                 {"kind": "adx"}, {"kind": "stoch"}, {"kind": "psar"},
             ]
         )
-        
         df.ta.strategy(MyStrategy)
 
-        if df.empty:
-            return "Dados Insuficientes", 0, {"Erro": "Não foi possível calcular os indicadores."}, "NEUTRO"
+        if df.empty or 'RSI_14' not in df.columns:
+            return "Erro de Cálculo", 0, {"Erro": "Não foi possível calcular os indicadores técnicos."}, "NEUTRO"
 
         last = df.iloc[-1]
-        
         sinais = {}
         valores_indicadores = {}
-        
-        try:
+
+        # 4. Extração Segura dos Sinais
+        if 'RSI_14' in last and pd.notna(last['RSI_14']):
             rsi_val = last['RSI_14']
             valores_indicadores['RSI'] = f"{rsi_val:.1f}"
             if rsi_val < 30: sinais['RSI'] = 1
             elif rsi_val > 70: sinais['RSI'] = -1
             else: sinais['RSI'] = 0
-        except (KeyError, TypeError): sinais['RSI'] = 0; valores_indicadores['RSI'] = "Erro"
+        else:
+            sinais['RSI'] = 0; valores_indicadores['RSI'] = "N/A"
 
-        try:
+        if 'MACD_12_26_9' in last and 'MACDs_12_26_9' in last and pd.notna(last['MACD_12_26_9']) and pd.notna(last['MACDs_12_26_9']):
             valores_indicadores['MACD'] = f"{last['MACD_12_26_9']:.2f}"
             if last['MACD_12_26_9'] > last['MACDs_12_26_9']: sinais['MACD'] = 1
             else: sinais['MACD'] = -1
-        except (KeyError, TypeError): sinais['MACD'] = 0; valores_indicadores['MACD'] = "Erro"
-        
-        try:
-            # Defensive check to ensure Bollinger Bands columns were created
-            if 'BBU_20_2.0' in last and 'BBL_20_2.0' in last and pd.notna(last['BBU_20_2.0']) and pd.notna(last['BBL_20_2.0']):
-                bbu = last['BBU_20_2.0']
-                bbl = last['BBL_20_2.0']
-                close = last['close']
-                
-                # Evita divisão por zero se as bandas forem iguais
-                if (bbu - bbl) > 0:
-                    bbp = (close - bbl) / (bbu - bbl)
-                    valores_indicadores['Bandas de Bollinger (%B)'] = f"{bbp:.2f}"
-                else:
-                    valores_indicadores['Bandas de Bollinger (%B)'] = "N/A"
+        else:
+            sinais['MACD'] = 0; valores_indicadores['MACD'] = "N/A"
 
-                if close < bbl: 
-                    sinais['BOLLINGER'] = 1
-                elif close > bbu: 
-                    sinais['BOLLINGER'] = -1
-                else: 
-                    sinais['BOLLINGER'] = 0
+        if 'BBU_20_2.0' in last and 'BBL_20_2.0' in last and pd.notna(last['BBU_20_2.0']) and pd.notna(last['BBL_20_2.0']):
+            bbu, bbl, close = last['BBU_20_2.0'], last['BBL_20_2.0'], last['close']
+            if (bbu - bbl) > 0:
+                bbp = (close - bbl) / (bbu - bbl)
+                valores_indicadores['Bandas de Bollinger (%B)'] = f"{bbp:.2f}"
             else:
-                # If columns don't exist, mark as neutral/error
-                sinais['BOLLINGER'] = 0
-                valores_indicadores['Bandas de Bollinger (%B)'] = "Indisp."
-        except (KeyError, TypeError): 
-            sinais['BOLLINGER'] = 0
-            valores_indicadores['Bandas de Bollinger (%B)'] = "Erro"
-        
-        try:
+                valores_indicadores['Bandas de Bollinger (%B)'] = "N/A"
+            if close < bbl: sinais['BOLLINGER'] = 1
+            elif close > bbu: sinais['BOLLINGER'] = -1
+            else: sinais['BOLLINGER'] = 0
+        else:
+            sinais['BOLLINGER'] = 0; valores_indicadores['Bandas de Bollinger (%B)'] = "N/A"
+
+        if 'EMA_9' in last and 'EMA_21' in last and pd.notna(last['EMA_9']) and pd.notna(last['EMA_21']):
             valores_indicadores['EMA (9 vs 21)'] = "Cruz. Alta" if last['EMA_9'] > last['EMA_21'] else "Cruz. Baixa"
             if last['EMA_9'] > last['EMA_21']: sinais['EMA'] = 1
             else: sinais['EMA'] = -1
-        except (KeyError, TypeError): sinais['EMA'] = 0; valores_indicadores['EMA (9 vs 21)'] = "Erro"
+        else:
+            sinais['EMA'] = 0; valores_indicadores['EMA (9 vs 21)'] = "N/A"
 
         if timeframe == 'weekly':
             weekly_bias_signal = "Alta" if sinais.get('EMA', 0) > 0 and sinais.get('MACD', 0) > 0 else ("Baixa" if sinais.get('EMA', 0) < 0 and sinais.get('MACD', 0) < 0 else "Neutro")
             return "Viés Semanal", 0, valores_indicadores, weekly_bias_signal
 
-        try:
+        if 'ADX_14' in last and 'DMP_14' in last and 'DMN_14' in last and all(pd.notna(last[c]) for c in ['ADX_14', 'DMP_14', 'DMN_14']):
             adx_val = last['ADX_14']
             valores_indicadores['ADX'] = f"{adx_val:.1f}"
             if adx_val > 25 and last['DMP_14'] > last['DMN_14']: sinais['ADX'] = 1
             elif adx_val > 25 and last['DMN_14'] > last['DMP_14']: sinais['ADX'] = -1
             else: sinais['ADX'] = 0
-        except (KeyError, TypeError): sinais['ADX'] = 0; valores_indicadores['ADX'] = "Erro"
-            
-        try:
+        else:
+            sinais['ADX'] = 0; valores_indicadores['ADX'] = "N/A"
+
+        if 'STOCHk_14_3_3' in last and pd.notna(last['STOCHk_14_3_3']):
             stoch_val = last['STOCHk_14_3_3']
             valores_indicadores['Estocástico'] = f"{stoch_val:.1f}"
             if stoch_val < 20: sinais['STOCH'] = 1
             elif stoch_val > 80: sinais['STOCH'] = -1
             else: sinais['STOCH'] = 0
-        except (KeyError, TypeError): sinais['STOCH'] = 0; valores_indicadores['Estocástico'] = "Erro"
-            
-        try:
-            if not pd.isna(last['PSARl_0.02_0.2']): 
-                sinais['SAR'] = 1
-                valores_indicadores['SAR Parabólico'] = "Alta"
-            elif not pd.isna(last['PSARs_0.02_0.2']): 
-                sinais['SAR'] = -1
-                valores_indicadores['SAR Parabólico'] = "Baixa"
-            else: 
-                sinais['SAR'] = 0
-                valores_indicadores['SAR Parabólico'] = "Neutro"
-        except (KeyError, TypeError): 
-            sinais['SAR'] = 0
-            valores_indicadores['SAR Parabólico'] = "Erro"
-            
-        pesos = {
-            'RSI': 0.20, 'MACD': 0.20, 'BOLLINGER': 0.15, 'EMA': 0.15,
-            'ADX': 0.10, 'STOCH': 0.08, 'SAR': 0.07
-        }
-        
+        else:
+            sinais['STOCH'] = 0; valores_indicadores['Estocástico'] = "N/A"
+
+        if 'PSARl_0.02_0.2' in last and 'PSARs_0.02_0.2' in last:
+            if pd.notna(last['PSARl_0.02_0.2']):
+                sinais['SAR'] = 1; valores_indicadores['SAR Parabólico'] = "Alta"
+            elif pd.notna(last['PSARs_0.02_0.2']):
+                sinais['SAR'] = -1; valores_indicadores['SAR Parabólico'] = "Baixa"
+            else:
+                sinais['SAR'] = 0; valores_indicadores['SAR Parabólico'] = "Neutro"
+        else:
+            sinais['SAR'] = 0; valores_indicadores['SAR Parabólico'] = "N/A"
+
+        # 5. Cálculo do Score e Sinal Final
+        pesos = {'RSI': 0.20, 'MACD': 0.20, 'BOLLINGER': 0.15, 'EMA': 0.15, 'ADX': 0.10, 'STOCH': 0.08, 'SAR': 0.07}
         score = sum(pesos.get(ind, 0) * valor for ind, valor in sinais.items())
         score_ajustado = score + (0.15 * weekly_bias)
         
@@ -1758,23 +1752,24 @@ def analise_tecnica_ativo(ticker, timeframe='daily', weekly_bias=0, thresholds=N
         tendencia_baixa = sinais.get('MACD', 0) < 0 or sinais.get('EMA', 0) < 0
         momento_baixa = sinais.get('RSI', 0) < 0 or sinais.get('STOCH', 0) < 0
 
-        if score_ajustado > thresholds['forte'] and tendencia_alta and momento_alta:
-            sinal_final = "COMPRA FORTE"
-        elif score_ajustado > thresholds['normal']:
-            sinal_final = "COMPRA"
-        elif score_ajustado < -thresholds['forte'] and tendencia_baixa and momento_baixa:
-            sinal_final = "VENDA FORTE"
-        elif score_ajustado < -thresholds['normal']:
-            sinal_final = "VENDA"
-        else:
-            sinal_final = "NEUTRO"
+        if score_ajustado > thresholds['forte'] and tendencia_alta and momento_alta: sinal_final = "COMPRA FORTE"
+        elif score_ajustado > thresholds['normal']: sinal_final = "COMPRA"
+        elif score_ajustado < -thresholds['forte'] and tendencia_baixa and momento_baixa: sinal_final = "VENDA FORTE"
+        elif score_ajustado < -thresholds['normal']: sinal_final = "VENDA"
+        else: sinal_final = "NEUTRO"
 
-        # Adiciona os dados brutos para o modo de depuração
-        valores_indicadores['raw_data'] = df[['close', 'RSI_14', 'MACD_12_26_9', 'MACDs_12_26_9', 'BBL_20_2.0', 'BBU_20_2.0', 'EMA_9', 'EMA_21']].tail(10)
+        # 6. Coleta Segura de Dados Brutos para Depuração (A CAUSA DO ERRO ORIGINAL)
+        raw_data_cols = ['close', 'RSI_14', 'MACD_12_26_9', 'MACDs_12_26_9', 'BBL_20_2.0', 'BBU_20_2.0', 'EMA_9', 'EMA_21']
+        existing_cols = [col for col in raw_data_cols if col in df.columns]
+        if existing_cols:
+            valores_indicadores['raw_data'] = df[existing_cols].tail(10)
 
         return sinal_final, score_ajustado, valores_indicadores, "N/A"
-    except (RetryError, Exception) as e:
-        return "Erro", 0, {"Erro": str(e)}, "NEUTRO"
+
+    except Exception as e:
+        # Captura qualquer erro inesperado no processo
+        return "Erro", 0, {"Erro": f"Falha geral na análise técnica: {str(e)}"}, "NEUTRO"
+
 
 def gerar_analise_avancada(row, vies_fundamental, sinal_tecnico, vies_semanal):
     """Gera uma recomendação de texto para uma opção, integrando todas as análises."""
@@ -1985,17 +1980,17 @@ def ui_black_scholes():
                 return
 
             st.dataframe(df[['Ticker', 'Strike', 'Preço Mercado', 'Preço Teórico (BS)', 'Recomendação', 'Delta', 'Gamma', 'Vega', 'Theta', 'Rho']],
-                         use_container_width=True, hide_index=True,
-                         column_config={
-                             "Strike": st.column_config.NumberColumn("Strike", format="R$ %.2f"),
-                             "Preço Mercado": st.column_config.NumberColumn("Preço Mercado", format="R$ %.4f"),
-                             "Preço Teórico (BS)": st.column_config.NumberColumn("Preço Teórico", format="R$ %.4f"),
-                             "Delta": st.column_config.NumberColumn(format="%.3f"),
-                             "Gamma": st.column_config.NumberColumn(format="%.3f"),
-                             "Vega": st.column_config.NumberColumn(format="%.3f"),
-                             "Theta": st.column_config.NumberColumn(format="%.3f"),
-                             "Rho": st.column_config.NumberColumn(format="%.3f"),
-                         })
+                            use_container_width=True, hide_index=True,
+                            column_config={
+                                "Strike": st.column_config.NumberColumn("Strike", format="R$ %.2f"),
+                                "Preço Mercado": st.column_config.NumberColumn("Preço Mercado", format="R$ %.4f"),
+                                "Preço Teórico (BS)": st.column_config.NumberColumn("Preço Teórico", format="R$ %.4f"),
+                                "Delta": st.column_config.NumberColumn(format="%.3f"),
+                                "Gamma": st.column_config.NumberColumn(format="%.3f"),
+                                "Vega": st.column_config.NumberColumn(format="%.3f"),
+                                "Theta": st.column_config.NumberColumn(format="%.3f"),
+                                "Rho": st.column_config.NumberColumn(format="%.3f"),
+                            })
             
             st.markdown("---")
             st.markdown("#### 🔍 Análise Detalhada da Opção")
