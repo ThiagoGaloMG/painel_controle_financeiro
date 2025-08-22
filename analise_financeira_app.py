@@ -9,9 +9,9 @@ opções pelo modelo de Black-Scholes com análise avançada.
 
 O código foi revisado com base em um TCC sobre valuation que utiliza os modelos
 EVA e EFV, bem como o modelo de Hamada para ajuste do beta.
-Versão 18: Corrige a função 'carregar_mapeamento_ticker_cvm' para utilizar a
-            lista de mapeamento correta, eliminando a repetição de códigos CVM
-            para empresas diferentes.
+Versão 19: Corrige a função 'carregar_mapeamento_ticker_cvm' para utilizar a
+            lista de mapeamento definitiva e correta, eliminando a repetição
+            de códigos CVM para empresas diferentes.
 """
 
 import os
@@ -682,8 +682,8 @@ def carregar_mapeamento_ticker_cvm():
 26484;NEXP3;NEXPE PARTICIPAÇÕES S.A.
 """
     try:
-        # CORREÇÃO: O separador foi alterado para vírgula para corresponder ao novo formato da string.
-        df = pd.read_csv(io.StringIO(mapeamento_csv_data), sep=',', encoding='utf-8')
+        # CORREÇÃO: O separador foi alterado para ponto e vírgula para corresponder ao novo formato da string.
+        df = pd.read_csv(io.StringIO(mapeamento_csv_data), sep=';', encoding='utf-8')
         df.columns = df.columns.str.strip()
         df.rename(columns={'Ticker': 'TICKER', 'CD_CVM': 'CD_CVM'}, inplace=True, errors='ignore')
         df = df.dropna(subset=['TICKER', 'CD_CVM'])
