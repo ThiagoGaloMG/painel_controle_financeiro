@@ -955,18 +955,22 @@ def ui_controle_financeiro():
                         key="editor_transacoes"
             )
             
-            if st.button("Excluir Lançamentos Selecionados"):
-                linhas_para_excluir = edited_df[edited_df['Excluir']]
-                        
-                        for index, row in linhas_para_excluir.iterrows():
-                                    transaction_id = int(row['id'])
-                                    delete_transaction(transaction_id)
-                                    
-                        if not linhas_para_excluir.empty:
-                                    st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
-                                    st.rerun() # Atualiza a página para mostrar a lista sem os itens excluídos
-                        else:
-                                 st.warning("Nenhum lançamento foi selecionado para exclusão.")
+if st.button("Excluir Lançamentos Selecionados"):
+    # Esta linha define o nível de indentação base
+    linhas_para_excluir = edited_df[edited_df['Excluir']]
+    
+    # O 'for' deve começar na mesma posição da linha acima
+    for index, row in linhas_para_excluir.iterrows():
+        # O conteúdo do loop tem um nível a mais de indentação
+        transaction_id = int(row['id'])
+        delete_transaction(transaction_id)
+    
+    # O 'if' seguinte também deve estar no mesmo nível do 'for'
+    if not linhas_para_excluir.empty:
+        st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
+        st.rerun()
+    else:
+        st.warning("Nenhum lançamento foi selecionado para exclusão.")
         else:
             st.info("Nenhuma transação registrada no banco de dados.")
 
