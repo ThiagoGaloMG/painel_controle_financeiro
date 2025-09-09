@@ -936,10 +936,9 @@ def ui_controle_financeiro():
         st.info("Adicione transações para visualizar os gráficos de evolução.")
 
 with st.expander("📜 Histórico de Transações", expanded=True):
-        # Primeiro, verificamos se o DataFrame NÃO está vazio
-    if not df_trans.empty:
-            df_para_editar = df_trans.copy()
-            df_para_editar['Excluir'] = False
+            if not df_trans.empty:
+                        df_para_editar = df_trans.copy()
+                        df_para_editar['Excluir'] = False
 
             # O editor de dados é exibido AQUI DENTRO
             edited_df = st.data_editor(
