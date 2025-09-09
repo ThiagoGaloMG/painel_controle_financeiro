@@ -39,6 +39,10 @@ from supabase_client import fetch_transactions, add_transaction, delete_transact
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
 
+@st.cache_data
+def load_transactions_data():
+    """Busca os dados do Supabase e os armazena em cache."""
+    return fetch_transactions()
 # ==============================================================================
 # CONFIGURAÇÕES GERAIS E LAYOUT DA PÁGINA
 # ==============================================================================
@@ -778,10 +782,8 @@ def format_large_number(num):
 
 def ui_controle_financeiro():
     """Renderiza a interface completa da aba de Controle Financeiro."""
-    st.header("Dashboard de Controle Financeiro Pessoal"),
-    @st.cache_data
-    def load_transactions_data():
-        return fetch_transactions()
+    st.header("Dashboard de Controle Financeiro Pessoal")
+
     df_trans = load_transactions_data()
 
     col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
