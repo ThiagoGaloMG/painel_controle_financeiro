@@ -780,6 +780,7 @@ def format_large_number(num):
         return f"R$ {num/1_000:.1f}k"
     return f"R$ {num:,.2f}"
 
+# Adicione esta função ANTES de ui_controle_financeiro, no escopo global
 def limpar_selecao_categoria():
     """Define o valor do widget de categoria como o primeiro da lista de opções."""
     # Pega o tipo recém-selecionado do session_state
@@ -796,6 +797,7 @@ def ui_controle_financeiro():
 
     df_trans = load_transactions_data()
 
+    # ... (o código dos filtros de data e totais permanece o mesmo, está correto) ...
     col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
 
     data_inicio = col_filter1.date_input("Data de Início", value=datetime.now() - pd.Timedelta(days=365), format="DD/MM/YYYY")
@@ -804,17 +806,13 @@ def ui_controle_financeiro():
 
     st.divider()
 
-    # Cria uma cópia filtrada do DataFrame principal para os cálculos e gráficos
-    df_filtrado = pd.DataFrame() # Começa como um DF vazio para evitar erros
+    df_filtrado = pd.DataFrame()
     if not df_trans.empty:
-        # Garante que a coluna 'Data' é do tipo datetime
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
-        # Aplica os filtros de data e tipo
         df_filtrado = df_trans[(df_trans['Data'].dt.date >= data_inicio) & (df_trans['Data'].dt.date <= data_fim)]
         if tipo_filtro != "Todos":
             df_filtrado = df_filtrado[df_filtrado['Tipo'] == tipo_filtro]
 
-    # Calcula os totais com base no DataFrame já filtrado
     if not df_filtrado.empty:
         total_receitas = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
         total_despesas = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
@@ -835,26 +833,28 @@ def ui_controle_financeiro():
     col1, col2 = st.columns(2)
     with col1:
         with st.expander("➕ Novo Lançamento", expanded=True):
+            
+            # --- CORREÇÃO PRINCIPAL INICIA AQUI ---
+            # Widgets reativos (Tipo e Categoria) são movidos para FORA do formulário.
+            
+            tipo = st.selectbox(
+                "Tipo", 
+                ["Receita", "Despesa", "Investimento"], 
+                key="tipo_selecionado", 
+                on_change=limpar_selecao_categoria
+            )
+            
+            opcoes_categoria = st.session_state.categories.get(tipo, []) + ["--- Adicionar Nova Categoria ---"]
+            
+            categoria_selecionada = st.selectbox(
+                "Categoria", 
+                options=opcoes_categoria, 
+                key="categoria_selecionada"
+            )
+
+            # O formulário agora agrupa apenas os campos que não precisam de reatividade imediata.
             with st.form("new_transaction_form", clear_on_submit=True):
                 data = st.date_input("Data", datetime.now(), format="DD/MM/YYYY")
-                
-                # Passo A: Adicionamos a key e o on_change ao seletor de TIPO
-                tipo = st.selectbox(
-                    "Tipo", 
-                    ["Receita", "Despesa", "Investimento"], 
-                    key="tipo_selecionado", 
-                    on_change=limpar_selecao_categoria
-                )
-                
-                # Usamos o valor do session_state para garantir que a lista de categorias seja a correta
-                opcoes_categoria = st.session_state.categories.get(st.session_state.tipo_selecionado, []) + ["--- Adicionar Nova Categoria ---"]
-                
-                # Passo B: Adicionamos uma key ao seletor de CATEGORIA
-                categoria_selecionada = st.selectbox(
-                    "Categoria", 
-                    options=opcoes_categoria, 
-                    key="categoria_selecionada"
-                )
                 
                 categoria_final = None
                 if categoria_selecionada == "--- Adicionar Nova Categoria ---":
@@ -863,29 +863,29 @@ def ui_controle_financeiro():
                 else:
                     categoria_final = categoria_selecionada
                 
-                sub_arca = categoria_final if tipo == "Investimento" else None
-                
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 descricao = st.text_input("Descrição (opcional)")
+                
+                # O botão de submit pertence ao formulário
                 submitted = st.form_submit_button("Adicionar Lançamento")
 
                 if submitted and categoria_final:
+                    # Usamos a variável 'tipo' que foi definida fora do formulário
+                    sub_arca = categoria_final if tipo == "Investimento" else None
+                    
                     if tipo != "Investimento" and categoria_final not in st.session_state.categories.get(tipo, []):
                         st.session_state.categories[tipo].append(categoria_final)
                     
                     nova_transacao_dict = {
-                        'Data': data, 
-                        'Tipo': tipo, 
-                        'Categoria': categoria_final, 
-                        'Subcategoria ARCA': sub_arca, 
-                        'Valor': valor, 
-                        'Descrição': descricao
+                        'Data': data, 'Tipo': tipo, 'Categoria': categoria_final, 
+                        'Subcategoria ARCA': sub_arca, 'Valor': valor, 'Descrição': descricao
                     }
                     add_transaction(nova_transacao_dict)
                     st.success("Lançamento salvo no banco de dados!")
                     st.rerun()
-    
+
     with col2:
+        # ... (código das Metas Financeiras permanece o mesmo) ...
         with st.expander("🎯 Metas Financeiras", expanded=True):
             meta_selecionada = st.selectbox("Selecione a meta para definir", options=list(st.session_state.goals.keys()))
             novo_valor_meta = st.number_input("Definir Valor Alvo (R$)", min_value=0.0, value=st.session_state.goals[meta_selecionada]['meta'], format="%.2f")
@@ -893,13 +893,16 @@ def ui_controle_financeiro():
                 st.session_state.goals[meta_selecionada]['meta'] = novo_valor_meta
                 st.success(f"Meta '{meta_selecionada}' atualizada!")
     
+    # ... (o resto da função com os gráficos e o expander de Histórico de Transações permanece o mesmo) ...
     st.divider()
 
     st.subheader("Análise Histórica")
+    # ... código dos gráficos ...
     if not df_filtrado.empty:
+        # ... código dos gráficos ...
         neon_palette = ['#00F6FF', '#39FF14', '#FF5252', '#F2A30F', '#7B2BFF']
         
-        df_arca = df_filtrado[df_filtrado['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
+        df_arca = df_filtrado[df_filtrado['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum() # <-- CORREÇÃO 2A
         if not df_arca.empty:
             fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", 
                                 hole=.4, color_discrete_sequence=neon_palette)
@@ -908,7 +911,7 @@ def ui_controle_financeiro():
             fig_arca.update_traces(textinfo='percent+label', textfont_size=14)
             st.plotly_chart(fig_arca, use_container_width=True)
         else:
-            st.info("Nenhum investimento ARCA registrado.")
+            st.info("Nenhum investimento ARCA registrado no período selecionado.")
             
         st.divider()
         
@@ -927,8 +930,7 @@ def ui_controle_financeiro():
                                                         y=df_patrimonio_filtrado.values, 
                                                         title="Evolução do Patrimônio (Investimentos)", 
                                                         labels={'index': 'Data', 'y': 'Patrimônio Total'},
-                                                        markers=True, 
-                                                        template="plotly_dark")
+                                                        markers=True, template="plotly_dark")
             fig_evol_patrimonio_investimento.update_layout(paper_bgcolor='rgba(0,0,0,0)', 
                                                             plot_bgcolor='rgba(0,0,0,0)', 
                                                             font_color='var(--text-color)', 
@@ -954,13 +956,12 @@ def ui_controle_financeiro():
             st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
-
+    
     with st.expander("📜 Histórico de Transações", expanded=True):
         if not df_trans.empty:
             df_para_editar = df_trans.copy()
             df_para_editar['Excluir'] = False
 
-            # Guarda o estado original do dataframe antes de ser editado
             if 'original_df' not in st.session_state:
                 st.session_state.original_df = df_para_editar.copy()
 
@@ -980,36 +981,28 @@ def ui_controle_financeiro():
                 key="editor_transacoes"
             )
             
-            # --- LÓGICA DOS BOTÕES ---
             col_salvar, col_excluir = st.columns(2)
 
             with col_salvar:
                 if st.button("Salvar Alterações", use_container_width=True, type="primary"):
-                    # Compara o dataframe original com o editado para encontrar mudanças
                     try:
                         mudancas = st.session_state.original_df.compare(edited_df)
                         if not mudancas.empty:
                             count = 0
                             for index in mudancas.index:
-                                # Pega a linha inteira com os dados atualizados
                                 linha_modificada = edited_df.loc[index]
                                 transaction_id = int(linha_modificada['id'])
-                                
-                                # Prepara os dados para o update, removendo colunas que não devem ser alteradas
                                 dados_para_atualizar = linha_modificada.drop(['id', 'created_at', 'Excluir']).to_dict()
-                                
                                 update_transaction(transaction_id, dados_para_atualizar)
                                 count += 1
                             
                             st.success(f"{count} lançamento(s) atualizado(s) com sucesso!")
-                            # Atualiza o dataframe original no session_state e recarrega a página
                             st.session_state.original_df = edited_df.copy() 
                             st.rerun()
                         else:
                             st.info("Nenhuma alteração foi feita na tabela.")
                     except Exception as e:
                         st.warning(f"Não foi possível salvar as alterações. Erro: {e}")
-
 
             with col_excluir:
                 if st.button("Excluir Lançamentos Selecionados", use_container_width=True):
@@ -1021,8 +1014,8 @@ def ui_controle_financeiro():
                             delete_transaction(transaction_id)
                         
                         st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
-                        # Limpa o dataframe original do session state para forçar a recarga
-                        del st.session_state.original_df
+                        if 'original_df' in st.session_state:
+                            del st.session_state.original_df
                         st.rerun()
                     else:
                         st.warning("Nenhum lançamento foi selecionado para exclusão.")
