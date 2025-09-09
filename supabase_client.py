@@ -3,7 +3,6 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
-from supabase_client import fetch_transactions, add_transaction, delete_transaction, update_transaction
 
 # Etapa 1: Inicializar a conexão com o Supabase
 # Usamos st.cache_resource para que a conexão seja criada apenas uma vez por sessão.
