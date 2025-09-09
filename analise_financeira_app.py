@@ -936,33 +936,72 @@ def ui_controle_financeiro():
             df_para_editar = df_trans.copy()
             df_para_editar['Excluir'] = False
 
+            # Guarda o estado original do dataframe antes de ser editado
+            if 'original_df' not in st.session_state:
+                st.session_state.original_df = df_para_editar.copy()
+
             edited_df = st.data_editor(
                 df_para_editar,
                 use_container_width=True,
                 column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
                 column_config={
-                    "id": None,
-                    "created_at": None,
-                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                    "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+                    "id": None, "created_at": None,
+                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
+                    "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
+                    "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Receita", "Despesa", "Investimento"], required=True),
+                    "Categoria": st.column_config.TextColumn("Categoria", required=True),
                     "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
                 },
                 hide_index=True,
                 key="editor_transacoes"
             )
             
-            if st.button("Excluir Lançamentos Selecionados"):
-                linhas_para_excluir = edited_df[edited_df['Excluir']]
-                
-                for index, row in linhas_para_excluir.iterrows():
-                    transaction_id = int(row['id'])
-                    delete_transaction(transaction_id)
-                
-                if not linhas_para_excluir.empty:
-                    st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
-                    st.rerun()
-                else:
-                    st.warning("Nenhum lançamento foi selecionado para exclusão.")
+            # --- LÓGICA DOS BOTÕES ---
+            col_salvar, col_excluir = st.columns(2)
+
+            with col_salvar:
+                if st.button("Salvar Alterações", use_container_width=True, type="primary"):
+                    # Compara o dataframe original com o editado para encontrar mudanças
+                    try:
+                        mudancas = st.session_state.original_df.compare(edited_df)
+                        if not mudancas.empty:
+                            count = 0
+                            for index in mudancas.index:
+                                # Pega a linha inteira com os dados atualizados
+                                linha_modificada = edited_df.loc[index]
+                                transaction_id = int(linha_modificada['id'])
+                                
+                                # Prepara os dados para o update, removendo colunas que não devem ser alteradas
+                                dados_para_atualizar = linha_modificada.drop(['id', 'created_at', 'Excluir']).to_dict()
+                                
+                                update_transaction(transaction_id, dados_para_atualizar)
+                                count += 1
+                            
+                            st.success(f"{count} lançamento(s) atualizado(s) com sucesso!")
+                            # Atualiza o dataframe original no session_state e recarrega a página
+                            st.session_state.original_df = edited_df.copy() 
+                            st.rerun()
+                        else:
+                            st.info("Nenhuma alteração foi feita na tabela.")
+                    except Exception as e:
+                        st.warning(f"Não foi possível salvar as alterações. Erro: {e}")
+
+
+            with col_excluir:
+                if st.button("Excluir Lançamentos Selecionados", use_container_width=True):
+                    linhas_para_excluir = edited_df[edited_df['Excluir']]
+                    
+                    if not linhas_para_excluir.empty:
+                        for index, row in linhas_para_excluir.iterrows():
+                            transaction_id = int(row['id'])
+                            delete_transaction(transaction_id)
+                        
+                        st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
+                        # Limpa o dataframe original do session state para forçar a recarga
+                        del st.session_state.original_df
+                        st.rerun()
+                    else:
+                        st.warning("Nenhum lançamento foi selecionado para exclusão.")
         else:
             st.info("Nenhuma transação registrada no banco de dados.")
 
