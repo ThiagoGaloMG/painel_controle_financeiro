@@ -3,6 +3,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
+from supabase_client import fetch_transactions, add_transaction, delete_transaction, update_transaction
 
 # Etapa 1: Inicializar a conexão com o Supabase
 # Usamos st.cache_resource para que a conexão seja criada apenas uma vez por sessão.
@@ -90,4 +91,28 @@ def delete_transaction(transaction_id: int):
         return response
     except Exception as e:
         st.error(f"Erro ao excluir transação: {e}")
+        return None
+
+# Adicione esta função ao final do arquivo supabase_client.py
+
+def update_transaction(transaction_id: int, data: dict):
+    """
+    Atualiza uma transação existente no banco de dados com base em seu ID.
+    'data' é um dicionário com as colunas e os novos valores a serem atualizados.
+    """
+    if supabase_client is None:
+        return None
+
+    try:
+        # Garante que o formato da data está correto para o Supabase
+        if 'Data' in data and hasattr(data['Data'], 'isoformat'):
+            data['Data'] = pd.to_datetime(data['Data']).isoformat()
+        
+        response = supabase_client.table("transactions").update(data).eq("id", transaction_id).execute()
+        
+        # Limpa o cache para forçar a busca de novos dados na próxima vez que a página for carregada
+        st.cache_data.clear()
+        return response
+    except Exception as e:
+        st.error(f"Erro ao atualizar transação: {e}")
         return None
