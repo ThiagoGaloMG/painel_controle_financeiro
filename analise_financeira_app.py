@@ -35,9 +35,79 @@ from scipy.stats import norm
 import pandas_ta as ta
 import logging
 from typing import Dict, Any
+import json
 from supabase_client import fetch_transactions, add_transaction, delete_transaction, update_transaction
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
+
+# ============================================================================
+# Coloque esta função logo após os imports
+def set_neon_theme():
+    st.markdown("""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
+        :root {
+            --primary-color: #00F6FF;
+            --secondary-color: #39FF14;
+            --background-color: #0A0A1A;
+            --card-background: #1A1A2E;
+            --text-color: #E0E0E0;
+            --header-color: #FFFFFF;
+            --danger-color: #FF5252;
+        }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--background-color);
+        }
+
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            text-align: center;
+            color: var(--header-color);
+            text-shadow: 0 0 5px var(--primary-color), 0 0 15px var(--primary-color), 0 0 25px var(--primary-color);
+        }
+        
+        h3 {
+            text-align: center;
+            color: var(--text-color);
+        }
+
+        /* Container do Formulário de Login */
+        .login-container {
+            background-color: var(--card-background);
+            padding: 2rem 3rem;
+            border-radius: 15px;
+            border: 1px solid var(--primary-color);
+            box-shadow: 0 0 15px var(--primary-color);
+            max-width: 450px;
+            margin: 2rem auto;
+        }
+
+        /* Botão Principal */
+        .stButton button {
+            background: var(--primary-color);
+            color: var(--background-color);
+            border-radius: 8px;
+            border: none;
+            font-weight: bold;
+            box-shadow: 0 0 8px var(--primary-color);
+            transition: all 0.3s ease;
+        }
+        .stButton button:hover {
+            box-shadow: 0 0 20px var(--primary-color);
+            transform: scale(1.02);
+        }
+        
+        /* Mensagens de Erro e Sucesso */
+        .stAlert {
+             border-radius: 8px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+# ============================================================================
 
 @st.cache_data
 def load_transactions_data():
@@ -2078,19 +2148,23 @@ def ui_black_scholes():
 
 # Em analise_financeira_app.py
 
+# Adicione esta função ANTES de def main():
 def login_screen():
-    """Mostra a tela de login e criação de conta na tela."""
-    # Garante que o cliente supabase esteja disponível nesta função
-    from supabase_client import supabase_client
+    """Mostra a tela de login e criação de conta com tema neon."""
+    set_neon_theme() # Aplica o CSS que criamos
 
-    st.title("Bem-vindo ao Painel de Controle Financeiro")
-    login_tab, signup_tab = st.tabs(["Login", "Criar Conta"])
+    st.title("Painel de Controle Financeiro")
+    st.markdown("<h3 style='font-weight:normal;'>Gerencie suas finanças com um toque futurista.</h3>", unsafe_allow_html=True)
+
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    
+    login_tab, signup_tab = st.tabs(["🔒 Entrar", "✨ Criar Conta"])
 
     with login_tab:
-        with st.form("login_form"):
-            email = st.text_input("Email")
-            password = st.text_input("Senha", type="password")
-            submitted = st.form_submit_button("Entrar")
+        with st.form("login_form", clear_on_submit=False):
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Senha", type="password", key="login_password")
+            submitted = st.form_submit_button("Entrar no Sistema")
             if submitted:
                 try:
                     response = supabase_client.auth.sign_in_with_password({"email": email, "password": password})
@@ -2100,10 +2174,10 @@ def login_screen():
                     st.error(f"Erro no login: Verifique seu email e senha.")
 
     with signup_tab:
-        with st.form("signup_form"):
-            email = st.text_input("Email para cadastro")
-            password = st.text_input("Crie uma senha", type="password")
-            submitted = st.form_submit_button("Criar Conta")
+        with st.form("signup_form", clear_on_submit=False):
+            email = st.text_input("Email para cadastro", key="signup_email")
+            password = st.text_input("Crie uma senha", type="password", key="signup_password")
+            submitted = st.form_submit_button("Criar Minha Conta")
             if submitted:
                 try:
                     response = supabase_client.auth.sign_up({"email": email, "password": password})
@@ -2113,46 +2187,17 @@ def login_screen():
                 except Exception as e:
                     st.error(f"Erro ao criar conta: {e}")
     
-    # Adicione esta linha no final da função
+    st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 def main_app():
-    """Mostra todo o painel financeiro para o usuário já logado."""
-    # Adiciona um botão de Sair na barra lateral
-    st.sidebar.write(f"Logado como: {st.session_state.user.user.email}")
-    if st.sidebar.button("Sair (Logout)"):
-        st.session_state.user = None # Apaga a "credencial" da memória
-        st.rerun() # Recarrega a página (que agora mostrará a tela de login)
-
-    # Todo o código do seu painel que antes estava em main() agora fica aqui
-    st.title("Sistema de Controle Financeiro e Análise de Investimentos")
-    inicializar_session_state()
-    
-    tabs = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
-    
-    with tabs[0]:
-        ui_controle_financeiro()
-    with tabs[1]:
-        ui_valuation()
-    with tabs[2]:
-        ui_modelo_fleuriet()
-    with tabs[3]:
-        ui_black_scholes()
-
-# Substitua as funções main() e main_app() por esta
-def main():
-    """Função principal que orquestra o layout do aplicativo Streamlit."""
-    
-    # Verifica se o usuário está logado
-    if 'user' not in st.session_state or st.session_state.user is None:
-        login_screen() # Esta função agora irá parar a execução
-
-    # Se o código chegar até aqui, significa que o usuário ESTÁ logado.
+    """Mostra o aplicativo principal após o login."""
     st.sidebar.write(f"Logado como: {st.session_state.user.user.email}")
     if st.sidebar.button("Sair (Logout)"):
         st.session_state.user = None
         st.rerun()
 
+    # Seu código original do painel começa aqui
     st.title("Sistema de Controle Financeiro e Análise de Investimentos")
     inicializar_session_state()
     
@@ -2167,5 +2212,31 @@ def main():
     with tabs[3]:
         ui_black_scholes()
 
-if __name__ == "__main__":
-    main()
+def main_app():
+    """Mostra o aplicativo principal após o login."""
+    st.sidebar.write(f"Logado como: {st.session_state.user.user.email}")
+    if st.sidebar.button("Sair (Logout)"):
+        st.session_state.user = None
+        st.rerun()
+
+    # Seu código original do painel começa aqui
+    st.title("Sistema de Controle Financeiro e Análise de Investimentos")
+    inicializar_session_state()
+    
+    tabs = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
+    
+    with tabs[0]:
+        ui_controle_financeiro()
+    with tabs[1]:
+        ui_valuation()
+    with tabs[2]:
+        ui_modelo_fleuriet()
+    with tabs[3]:
+        ui_black_scholes()
+
+def main():
+    """Função principal que decide se mostra a tela de login ou o app."""
+    if 'user' not in st.session_state or st.session_state.user is None:
+        login_screen()
+    else:
+        main_app()
