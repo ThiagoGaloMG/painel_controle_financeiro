@@ -970,8 +970,8 @@ if st.button("Excluir Lançamentos Selecionados"):
         st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
         st.rerun()
     else:
-        st.warning("Nenhum lançamento foi selecionado para exclusão.")
-        else:
+                st.warning("Nenhum lançamento foi selecionado para exclusão.")
+else:
             st.info("Nenhuma transação registrada no banco de dados.")
 
 # ==============================================================================
