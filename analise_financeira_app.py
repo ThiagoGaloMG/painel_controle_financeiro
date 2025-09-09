@@ -937,7 +937,7 @@ def ui_controle_financeiro():
 
 with st.expander("📜 Histórico de Transações", expanded=True):
         # Primeiro, verificamos se o DataFrame NÃO está vazio
-        if not df_trans.empty:
+    if not df_trans.empty:
             df_para_editar = df_trans.copy()
             df_para_editar['Excluir'] = False
 
