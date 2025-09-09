@@ -2076,12 +2076,16 @@ def ui_black_scholes():
 # ==============================================================================
 # Coloque estas duas funções ANTES da sua função main()
 
+# Em analise_financeira_app.py
+
 def login_screen():
-    """Desenha a tela de login e de criação de conta na tela."""
+    """Mostra a tela de login e criação de conta na tela."""
+    # Garante que o cliente supabase esteja disponível nesta função
+    from supabase_client import supabase_client
+
     st.title("Bem-vindo ao Painel de Controle Financeiro")
     login_tab, signup_tab = st.tabs(["Login", "Criar Conta"])
 
-    # Aba de Login
     with login_tab:
         with st.form("login_form"):
             email = st.text_input("Email")
@@ -2089,16 +2093,12 @@ def login_screen():
             submitted = st.form_submit_button("Entrar")
             if submitted:
                 try:
-                    # Tenta fazer o login com o Supabase
                     response = supabase_client.auth.sign_in_with_password({"email": email, "password": password})
-                    # Se der certo, salva a "credencial" do usuário na memória da sessão
                     st.session_state.user = response.session
-                    # Força o recarregamento da página
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro no login: Verifique seu email e senha.")
 
-    # Aba de Criação de Conta
     with signup_tab:
         with st.form("signup_form"):
             email = st.text_input("Email para cadastro")
@@ -2106,14 +2106,15 @@ def login_screen():
             submitted = st.form_submit_button("Criar Conta")
             if submitted:
                 try:
-                    # Tenta criar um novo usuário no Supabase
                     response = supabase_client.auth.sign_up({"email": email, "password": password})
-                    # Se der certo, já salva a "credencial" e faz o login automático
                     st.session_state.user = response.session
                     st.success("Conta criada com sucesso! Redirecionando...")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao criar conta: {e}")
+    
+    # Adicione esta linha no final da função
+    st.stop()
 
 def main_app():
     """Mostra todo o painel financeiro para o usuário já logado."""
@@ -2138,12 +2139,33 @@ def main_app():
     with tabs[3]:
         ui_black_scholes()
 
+# Substitua as funções main() e main_app() por esta
 def main():
-    """Função principal que decide se mostra a tela de login ou o app."""
-    # O "porteiro" verifica se existe uma "credencial" (st.session_state.user)
+    """Função principal que orquestra o layout do aplicativo Streamlit."""
+    
+    # Verifica se o usuário está logado
     if 'user' not in st.session_state or st.session_state.user is None:
-        # Se não houver, mostra a recepção
-        login_screen()
-    else:
-        # Se houver, mostra o aplicativo principal
-        main_app()
+        login_screen() # Esta função agora irá parar a execução
+
+    # Se o código chegar até aqui, significa que o usuário ESTÁ logado.
+    st.sidebar.write(f"Logado como: {st.session_state.user.user.email}")
+    if st.sidebar.button("Sair (Logout)"):
+        st.session_state.user = None
+        st.rerun()
+
+    st.title("Sistema de Controle Financeiro e Análise de Investimentos")
+    inicializar_session_state()
+    
+    tabs = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
+    
+    with tabs[0]:
+        ui_controle_financeiro()
+    with tabs[1]:
+        ui_valuation()
+    with tabs[2]:
+        ui_modelo_fleuriet()
+    with tabs[3]:
+        ui_black_scholes()
+
+if __name__ == "__main__":
+    main()
