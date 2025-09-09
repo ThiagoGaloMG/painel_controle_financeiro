@@ -42,6 +42,9 @@ warnings.filterwarnings('ignore')
 
 # ============================================================================
 # Coloque esta função logo após os imports
+# Em analise_financeira_app.py
+# Substitua a função de CSS antiga por esta
+
 def set_neon_theme():
     st.markdown("""
         <style>
@@ -55,10 +58,11 @@ def set_neon_theme():
             --text-color: #E0E0E0;
             --header-color: #FFFFFF;
             --danger-color: #FF5252;
+            --shadow-neon-primary: 0 0 8px var(--primary-color), 0 0 15px var(--primary-color);
         }
 
-        body {
-            font-family: 'Montserrat', sans-serif;
+        /* Aplica o fundo escuro a todo o app */
+        [data-testid="stAppViewContainer"] > .main {
             background-color: var(--background-color);
         }
 
@@ -66,27 +70,37 @@ def set_neon_theme():
             font-family: 'Orbitron', sans-serif;
             text-align: center;
             color: var(--header-color);
-            text-shadow: 0 0 5px var(--primary-color), 0 0 15px var(--primary-color), 0 0 25px var(--primary-color);
+            text-shadow: var(--shadow-neon-primary);
         }
         
         h3 {
             text-align: center;
+            font-weight: normal;
             color: var(--text-color);
         }
 
-        /* Container do Formulário de Login */
-        .login-container {
+        /* Estiliza o container do formulário diretamente */
+        [data-testid="stForm"] {
             background-color: var(--card-background);
-            padding: 2rem 3rem;
+            padding: 2rem;
             border-radius: 15px;
             border: 1px solid var(--primary-color);
-            box-shadow: 0 0 15px var(--primary-color);
-            max-width: 450px;
-            margin: 2rem auto;
+            box-shadow: var(--shadow-neon-primary);
         }
 
-        /* Botão Principal */
+        /* Estiliza as abas */
+        .stTabs [data-baseweb="tab-list"] button {
+            color: var(--text-color) !important;
+            background-color: transparent;
+        }
+        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+            color: var(--primary-color) !important;
+            border-bottom: 3px solid var(--primary-color);
+        }
+
+        /* Estiliza o botão de submit */
         .stButton button {
+            width: 100%;
             background: var(--primary-color);
             color: var(--background-color);
             border-radius: 8px;
@@ -96,13 +110,16 @@ def set_neon_theme():
             transition: all 0.3s ease;
         }
         .stButton button:hover {
-            box-shadow: 0 0 20px var(--primary-color);
-            transform: scale(1.02);
+            box-shadow: 0 0 25px var(--primary-color);
+            transform: scale(1.01);
+        }
+        .stButton button:active {
+            transform: scale(0.99);
         }
         
-        /* Mensagens de Erro e Sucesso */
+        /* Mensagens de erro */
         .stAlert {
-             border-radius: 8px;
+            border-radius: 8px;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -2149,47 +2166,50 @@ def ui_black_scholes():
 # Em analise_financeira_app.py
 
 # Adicione esta função ANTES de def main():
+# Em analise_financeira_app.py
+# Substitua a função de login antiga por esta
+
 def login_screen():
     """Mostra a tela de login e criação de conta com tema neon."""
-    set_neon_theme() # Aplica o CSS que criamos
-
-    st.title("Painel de Controle Financeiro")
-    st.markdown("<h3 style='font-weight:normal;'>Gerencie suas finanças com um toque futurista.</h3>", unsafe_allow_html=True)
-
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    set_neon_theme() # Aplica o novo CSS
     
-    login_tab, signup_tab = st.tabs(["🔒 Entrar", "✨ Criar Conta"])
+    # Centraliza o conteúdo principal usando colunas
+    _, col2, _ = st.columns([1, 1.5, 1])
 
-    with login_tab:
-        with st.form("login_form", clear_on_submit=False):
-            email = st.text_input("Email", key="login_email")
-            password = st.text_input("Senha", type="password", key="login_password")
-            submitted = st.form_submit_button("Entrar no Sistema")
-            if submitted:
-                try:
-                    response = supabase_client.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state.user = response.session
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro no login: Verifique seu email e senha.")
+    with col2:
+        st.title("Painel Financeiro")
+        st.markdown("<h3>Gerencie suas finanças com um toque futurista.</h3>", unsafe_allow_html=True)
+        st.text("") # Espaço
 
-    with signup_tab:
-        with st.form("signup_form", clear_on_submit=False):
-            email = st.text_input("Email para cadastro", key="signup_email")
-            password = st.text_input("Crie uma senha", type="password", key="signup_password")
-            submitted = st.form_submit_button("Criar Minha Conta")
-            if submitted:
-                try:
-                    response = supabase_client.auth.sign_up({"email": email, "password": password})
-                    st.session_state.user = response.session
-                    st.success("Conta criada com sucesso! Redirecionando...")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Erro ao criar conta: {e}")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+        login_tab, signup_tab = st.tabs(["🔒 Entrar", "✨ Criar Conta"])
+
+        with login_tab:
+            with st.form("login_form"):
+                email = st.text_input("Email", placeholder="seuemail@exemplo.com")
+                password = st.text_input("Senha", type="password", placeholder="********")
+                submitted = st.form_submit_button("Entrar no Sistema")
+                if submitted:
+                    try:
+                        response = supabase_client.auth.sign_in_with_password({"email": email, "password": password})
+                        st.session_state.user = response.session
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro no login: Verifique seu email e senha.")
+
+        with signup_tab:
+            with st.form("signup_form"):
+                email = st.text_input("Email para cadastro", placeholder="seuemail@exemplo.com")
+                password = st.text_input("Crie uma senha", type="password", placeholder="********")
+                submitted = st.form_submit_button("Criar Minha Conta")
+                if submitted:
+                    try:
+                        response = supabase_client.auth.sign_up({"email": email, "password": password})
+                        st.session_state.user = response.session
+                        st.success("Conta criada! Redirecionando...")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao criar conta: {e}")
     st.stop()
-
 def main_app():
     """Mostra o aplicativo principal após o login."""
     st.sidebar.write(f"Logado como: {st.session_state.user.user.email}")
