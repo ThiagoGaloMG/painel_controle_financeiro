@@ -781,8 +781,14 @@ def format_large_number(num):
     return f"R$ {num:,.2f}"
 
 def limpar_selecao_categoria():
-    """Limpa o valor selecionado no widget de categoria."""
-    st.session_state.categoria_selecionada = None
+    """Define o valor do widget de categoria como o primeiro da lista de opções."""
+    # Pega o tipo recém-selecionado do session_state
+    tipo_selecionado = st.session_state.get("tipo_selecionado", "Receita")
+    # Pega a lista de categorias para esse tipo
+    opcoes = st.session_state.categories.get(tipo_selecionado, [])
+    # Define o widget de categoria para a primeira opção da lista
+    if opcoes:
+        st.session_state.categoria_selecionada = opcoes[0]
 
 def ui_controle_financeiro():
     """Renderiza a interface completa da aba de Controle Financeiro."""
