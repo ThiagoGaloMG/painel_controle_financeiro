@@ -793,9 +793,11 @@ def limpar_selecao_categoria():
 
 def ui_controle_financeiro():
     """Renderiza a interface completa da aba de Controle Financeiro."""
+    user_id = st.session_state.user.user.id
     st.header("Dashboard de Controle Financeiro Pessoal")
 
-    df_trans = load_transactions_data()
+
+    df_trans = fetch_transactions(user_id=user_id)
 
     # ... (o código dos filtros de data e totais permanece o mesmo, está correto) ...
     col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
@@ -880,7 +882,7 @@ def ui_controle_financeiro():
                         'Data': data, 'Tipo': tipo, 'Categoria': categoria_final, 
                         'Subcategoria ARCA': sub_arca, 'Valor': valor, 'Descrição': descricao
                     }
-                    add_transaction(nova_transacao_dict)
+                    add_transaction(nova_transacao_dict, user_id=user_id)
                     st.success("Lançamento salvo no banco de dados!")
                     st.rerun()
 
@@ -993,7 +995,7 @@ def ui_controle_financeiro():
                                 linha_modificada = edited_df.loc[index]
                                 transaction_id = int(linha_modificada['id'])
                                 dados_para_atualizar = linha_modificada.drop(['id', 'created_at', 'Excluir']).to_dict()
-                                update_transaction(transaction_id, dados_para_atualizar)
+                                update_transaction(transaction_id, dados_para_atualizar, user_id=user_id)
                                 count += 1
                             
                             st.success(f"{count} lançamento(s) atualizado(s) com sucesso!")
@@ -1011,7 +1013,7 @@ def ui_controle_financeiro():
                     if not linhas_para_excluir.empty:
                         for index, row in linhas_para_excluir.iterrows():
                             transaction_id = int(row['id'])
-                            delete_transaction(transaction_id)
+                            delete_transaction(transaction_id, user_id=user_id)
                         
                         st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
                         if 'original_df' in st.session_state:
@@ -2125,25 +2127,76 @@ def ui_black_scholes():
 # ==============================================================================
 # ESTRUTURA PRINCIPAL DO APP
 # ==============================================================================
-def main():
-    """Função principal que orquestra o layout do aplicativo Streamlit."""
+# Coloque estas duas funções ANTES da sua função main()
+
+def login_screen():
+    """Desenha a tela de login e de criação de conta na tela."""
+    st.title("Bem-vindo ao Painel de Controle Financeiro")
+    login_tab, signup_tab = st.tabs(["Login", "Criar Conta"])
+
+    # Aba de Login
+    with login_tab:
+        with st.form("login_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Senha", type="password")
+            submitted = st.form_submit_button("Entrar")
+            if submitted:
+                try:
+                    # Tenta fazer o login com o Supabase
+                    response = supabase_client.auth.sign_in_with_password({"email": email, "password": password})
+                    # Se der certo, salva a "credencial" do usuário na memória da sessão
+                    st.session_state.user = response.session
+                    # Força o recarregamento da página
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro no login: Verifique seu email e senha.")
+
+    # Aba de Criação de Conta
+    with signup_tab:
+        with st.form("signup_form"):
+            email = st.text_input("Email para cadastro")
+            password = st.text_input("Crie uma senha", type="password")
+            submitted = st.form_submit_button("Criar Conta")
+            if submitted:
+                try:
+                    # Tenta criar um novo usuário no Supabase
+                    response = supabase_client.auth.sign_up({"email": email, "password": password})
+                    # Se der certo, já salva a "credencial" e faz o login automático
+                    st.session_state.user = response.session
+                    st.success("Conta criada com sucesso! Redirecionando...")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao criar conta: {e}")
+
+def main_app():
+    """Mostra todo o painel financeiro para o usuário já logado."""
+    # Adiciona um botão de Sair na barra lateral
+    st.sidebar.write(f"Logado como: {st.session_state.user.user.email}")
+    if st.sidebar.button("Sair (Logout)"):
+        st.session_state.user = None # Apaga a "credencial" da memória
+        st.rerun() # Recarrega a página (que agora mostrará a tela de login)
+
+    # Todo o código do seu painel que antes estava em main() agora fica aqui
     st.title("Sistema de Controle Financeiro e Análise de Investimentos")
     inicializar_session_state()
     
-    # Abas para navegação entre as diferentes funcionalidades
-    tab1, tab2, tab3, tab4 = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
+    tabs = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
     
-    with tab1:
+    with tabs[0]:
         ui_controle_financeiro()
-        
-    with tab2:
+    with tabs[1]:
         ui_valuation()
-        
-    with tab3:
+    with tabs[2]:
         ui_modelo_fleuriet()
-
-    with tab4:
+    with tabs[3]:
         ui_black_scholes()
 
-if __name__ == "__main__":
-    main()
+def main():
+    """Função principal que decide se mostra a tela de login ou o app."""
+    # O "porteiro" verifica se existe uma "credencial" (st.session_state.user)
+    if 'user' not in st.session_state or st.session_state.user is None:
+        # Se não houver, mostra a recepção
+        login_screen()
+    else:
+        # Se houver, mostra o aplicativo principal
+        main_app()
