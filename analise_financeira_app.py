@@ -830,7 +830,7 @@ def ui_controle_financeiro():
                 tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
                 
                 opcoes_categoria = st.session_state.categories.get(tipo, []) + ["--- Adicionar Nova Categoria ---"]
-                categoria_selecionada = st.selectbox("Categoria", options=opcoes_categoria, key=f"cat_{tipo}")
+                categoria_selecionada = st.selectbox("Categoria", options=opcoes_categoria, key="categoria_selectbox")
                 
                 categoria_final = None
                 if categoria_selecionada == "--- Adicionar Nova Categoria ---":
@@ -872,10 +872,10 @@ def ui_controle_financeiro():
     st.divider()
 
     st.subheader("Análise Histórica")
-    if not df_trans.empty:
+    if not df_filtrado.empty:
         neon_palette = ['#00F6FF', '#39FF14', '#FF5252', '#F2A30F', '#7B2BFF']
         
-        df_arca = df_trans[df_trans['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
+        df_arca = df_filtrado[df_filtrado['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
         if not df_arca.empty:
             fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", 
                                 hole=.4, color_discrete_sequence=neon_palette)
