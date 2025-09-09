@@ -791,23 +791,30 @@ def limpar_selecao_categoria():
     if opcoes:
         st.session_state.categoria_selecionada = opcoes[0]
 
+# Adicione esta função ANTES de ui_controle_financeiro, no escopo global
+def limpar_selecao_categoria():
+    """Define o valor do widget de categoria como o primeiro da lista de opções."""
+    tipo_selecionado = st.session_state.get("tipo_selecionado", "Receita")
+    opcoes = st.session_state.categories.get(tipo_selecionado, [])
+    if opcoes:
+        st.session_state.categoria_selecionada = opcoes[0]
+
 def ui_controle_financeiro():
     """Renderiza a interface completa da aba de Controle Financeiro."""
     user_id = st.session_state.user.user.id
     st.header("Dashboard de Controle Financeiro Pessoal")
 
-
+    # Carrega as transações do usuário logado
     df_trans = fetch_transactions(user_id=user_id)
 
-    # ... (o código dos filtros de data e totais permanece o mesmo, está correto) ...
+    # --- Seção de Filtros ---
     col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
-
     data_inicio = col_filter1.date_input("Data de Início", value=datetime.now() - pd.Timedelta(days=365), format="DD/MM/YYYY")
     data_fim = col_filter2.date_input("Data de Fim", value=datetime.now(), format="DD/MM/YYYY")
     tipo_filtro = col_filter3.selectbox("Filtrar por Tipo", ["Todos", "Receita", "Despesa", "Investimento"])
-
     st.divider()
 
+    # --- Lógica de Filtragem e Cálculo dos Cards ---
     df_filtrado = pd.DataFrame()
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
@@ -829,65 +836,47 @@ def ui_controle_financeiro():
     col_card2.metric("Despesas", format_large_number(total_despesas))
     col_card3.metric("Investimentos", format_large_number(total_investido))
     col_card4.metric("Saldo", format_large_number(saldo_periodo))
-    
     st.divider()
 
+    # --- Seção de Lançamentos e Metas ---
     col1, col2 = st.columns(2)
     with col1:
         with st.expander("➕ Novo Lançamento", expanded=True):
-            
-            # --- CORREÇÃO PRINCIPAL INICIA AQUI ---
-            # Widgets reativos (Tipo e Categoria) são movidos para FORA do formulário.
-            
             tipo = st.selectbox(
-                "Tipo", 
-                ["Receita", "Despesa", "Investimento"], 
-                key="tipo_selecionado", 
+                "Tipo", ["Receita", "Despesa", "Investimento"],
+                key="tipo_selecionado",
                 on_change=limpar_selecao_categoria
             )
             
-            opcoes_categoria = st.session_state.categories.get(tipo, []) + ["--- Adicionar Nova Categoria ---"]
+            opcoes_categoria = st.session_state.categories.get(st.session_state.get("tipo_selecionado", "Receita"), []) + ["--- Adicionar Nova Categoria ---"]
             
             categoria_selecionada = st.selectbox(
-                "Categoria", 
-                options=opcoes_categoria, 
+                "Categoria", options=opcoes_categoria,
                 key="categoria_selecionada"
             )
 
-            # O formulário agora agrupa apenas os campos que não precisam de reatividade imediata.
             with st.form("new_transaction_form", clear_on_submit=True):
                 data = st.date_input("Data", datetime.now(), format="DD/MM/YYYY")
-                
-                categoria_final = None
-                if categoria_selecionada == "--- Adicionar Nova Categoria ---":
-                    nova_categoria = st.text_input("Nome da Nova Categoria", key=f"new_cat_{tipo}")
-                    if nova_categoria: categoria_final = nova_categoria
-                else:
-                    categoria_final = categoria_selecionada
-                
                 valor = st.number_input("Valor (R$)", min_value=0.0, format="%.2f")
                 descricao = st.text_input("Descrição (opcional)")
-                
-                # O botão de submit pertence ao formulário
                 submitted = st.form_submit_button("Adicionar Lançamento")
 
-                if submitted and categoria_final:
-                    # Usamos a variável 'tipo' que foi definida fora do formulário
+                if submitted:
+                    categoria_final = categoria_selecionada
+                    if categoria_selecionada == "--- Adicionar Nova Categoria ---":
+                        st.warning("Funcionalidade de adicionar categoria em desenvolvimento.")
+                        st.stop()
+
                     sub_arca = categoria_final if tipo == "Investimento" else None
                     
-                    if tipo != "Investimento" and categoria_final not in st.session_state.categories.get(tipo, []):
-                        st.session_state.categories[tipo].append(categoria_final)
-                    
                     nova_transacao_dict = {
-                        'Data': data, 'Tipo': tipo, 'Categoria': categoria_final, 
+                        'Data': data, 'Tipo': tipo, 'Categoria': categoria_final,
                         'Subcategoria ARCA': sub_arca, 'Valor': valor, 'Descrição': descricao
                     }
                     add_transaction(nova_transacao_dict, user_id=user_id)
                     st.success("Lançamento salvo no banco de dados!")
                     st.rerun()
-
     with col2:
-        # ... (código das Metas Financeiras permanece o mesmo) ...
         with st.expander("🎯 Metas Financeiras", expanded=True):
             meta_selecionada = st.selectbox("Selecione a meta para definir", options=list(st.session_state.goals.keys()))
             novo_valor_meta = st.number_input("Definir Valor Alvo (R$)", min_value=0.0, value=st.session_state.goals[meta_selecionada]['meta'], format="%.2f")
@@ -895,96 +884,57 @@ def ui_controle_financeiro():
                 st.session_state.goals[meta_selecionada]['meta'] = novo_valor_meta
                 st.success(f"Meta '{meta_selecionada}' atualizada!")
     
-    # ... (o resto da função com os gráficos e o expander de Histórico de Transações permanece o mesmo) ...
     st.divider()
 
+    # --- Seção de Gráficos e Histórico ---
     st.subheader("Análise Histórica")
-    # ... código dos gráficos ...
     if not df_filtrado.empty:
-        # ... código dos gráficos ...
         neon_palette = ['#00F6FF', '#39FF14', '#FF5252', '#F2A30F', '#7B2BFF']
-        
-        df_arca = df_filtrado[df_filtrado['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum() # <-- CORREÇÃO 2A
+        df_arca = df_filtrado[df_filtrado['Tipo'] == 'Investimento'].groupby('Subcategoria ARCA')['Valor'].sum()
         if not df_arca.empty:
-            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", 
-                                hole=.4, color_discrete_sequence=neon_palette)
-            fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                    legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+            fig_arca = px.pie(df_arca, values='Valor', names=df_arca.index, title="Composição dos Investimentos (ARCA)", hole=.4, color_discrete_sequence=neon_palette)
+            fig_arca.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             fig_arca.update_traces(textinfo='percent+label', textfont_size=14)
             st.plotly_chart(fig_arca, use_container_width=True)
         else:
             st.info("Nenhum investimento ARCA registrado no período selecionado.")
-            
+        
         st.divider()
         
         df_investimento_filtrado = df_filtrado[df_filtrado['Tipo'] == 'Investimento'].copy()
-
-        patrimonio_inicial = df_trans[
-            (df_trans['Data'].dt.date < data_inicio) & 
-            (df_trans['Tipo'] == 'Investimento')
-        ]['Valor'].sum()
-        
+        patrimonio_inicial = df_trans[(df_trans['Data'].dt.date < data_inicio) & (df_trans['Tipo'] == 'Investimento')]['Valor'].sum()
         df_investimento_diario = df_investimento_filtrado.set_index('Data').resample('D')['Valor'].sum().fillna(0)
         df_patrimonio_filtrado = df_investimento_diario.cumsum() + patrimonio_inicial
-        
         if not df_patrimonio_filtrado.empty:
-            fig_evol_patrimonio_investimento = px.line(df_patrimonio_filtrado, 
-                                                        y=df_patrimonio_filtrado.values, 
-                                                        title="Evolução do Patrimônio (Investimentos)", 
-                                                        labels={'index': 'Data', 'y': 'Patrimônio Total'},
-                                                        markers=True, template="plotly_dark")
-            fig_evol_patrimonio_investimento.update_layout(paper_bgcolor='rgba(0,0,0,0)', 
-                                                            plot_bgcolor='rgba(0,0,0,0)', 
-                                                            font_color='var(--text-color)', 
-                                                            title_font_color='var(--header-color)',
-                                                            yaxis_title='Patrimônio Total (R$)')
+            fig_evol_patrimonio_investimento = px.line(df_patrimonio_filtrado, y=df_patrimonio_filtrado.values, title="Evolução do Patrimônio (Investimentos)", labels={'index': 'Data', 'y': 'Patrimônio Total'}, markers=True, template="plotly_dark")
+            fig_evol_patrimonio_investimento.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font_color='var(--text-color)', title_font_color='var(--header-color)', yaxis_title='Patrimônio Total (R$)')
             st.plotly_chart(fig_evol_patrimonio_investimento, use_container_width=True)
 
         col_graf1, col_graf2 = st.columns(2)
         with col_graf1:
-            df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
-            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, 
-                                    y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], 
-                                    title="Evolução Mensal por Tipo", barmode='group', 
-                                    color_discrete_map={'Receita': '#00F6FF', 'Despesa': '#FF5252', 'Investimento': '#39FF14'})
-            fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                        legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+            df_monthly = df_filtrado.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
+            fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], title="Evolução Mensal por Tipo", barmode='group', color_discrete_map={'Receita': '#00F6FF', 'Despesa': '#FF5252', 'Investimento': '#39FF14'})
+            fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
         with col_graf2:
             df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
             fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
-            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
-                                                legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
+            fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_patrimonio, use_container_width=True)
     else:
-        st.info("Adicione transações para visualizar os gráficos de evolução.")
-    
+        st.info("Nenhuma transação registrada no período. Adicione transações ou ajuste os filtros de data.")
+
     with st.expander("📜 Histórico de Transações", expanded=True):
         if not df_trans.empty:
             df_para_editar = df_trans.copy()
             df_para_editar['Excluir'] = False
 
-            if 'original_df' not in st.session_state:
+            if 'original_df' not in st.session_state or st.session_state.original_df.empty:
                 st.session_state.original_df = df_para_editar.copy()
 
-            edited_df = st.data_editor(
-                df_para_editar,
-                use_container_width=True,
-                column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
-                column_config={
-                    "id": None, "created_at": None,
-                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True),
-                    "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True),
-                    "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Receita", "Despesa", "Investimento"], required=True),
-                    "Categoria": st.column_config.TextColumn("Categoria", required=True),
-                    "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
-                },
-                hide_index=True,
-                key="editor_transacoes"
-            )
+            edited_df = st.data_editor(df_para_editar, use_container_width=True, column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'), column_config={"id": None, "created_at": None, "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", required=True), "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", required=True), "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Receita", "Despesa", "Investimento"], required=True), "Categoria": st.column_config.TextColumn("Categoria", required=True), "Subcategoria ARCA": st.column_config.TextColumn("ARCA")}, hide_index=True, key="editor_transacoes")
             
             col_salvar, col_excluir = st.columns(2)
-
             with col_salvar:
                 if st.button("Salvar Alterações", use_container_width=True, type="primary"):
                     try:
@@ -994,12 +944,11 @@ def ui_controle_financeiro():
                             for index in mudancas.index:
                                 linha_modificada = edited_df.loc[index]
                                 transaction_id = int(linha_modificada['id'])
-                                dados_para_atualizar = linha_modificada.drop(['id', 'created_at', 'Excluir']).to_dict()
+                                dados_para_atualizar = linha_modificada.drop(['id', 'created_at', 'Excluir', 'user_id']).to_dict()
                                 update_transaction(transaction_id, dados_para_atualizar, user_id=user_id)
                                 count += 1
-                            
                             st.success(f"{count} lançamento(s) atualizado(s) com sucesso!")
-                            st.session_state.original_df = edited_df.copy() 
+                            st.session_state.original_df = edited_df.copy()
                             st.rerun()
                         else:
                             st.info("Nenhuma alteração foi feita na tabela.")
@@ -1009,12 +958,10 @@ def ui_controle_financeiro():
             with col_excluir:
                 if st.button("Excluir Lançamentos Selecionados", use_container_width=True):
                     linhas_para_excluir = edited_df[edited_df['Excluir']]
-                    
                     if not linhas_para_excluir.empty:
                         for index, row in linhas_para_excluir.iterrows():
                             transaction_id = int(row['id'])
                             delete_transaction(transaction_id, user_id=user_id)
-                        
                         st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
                         if 'original_df' in st.session_state:
                             del st.session_state.original_df
