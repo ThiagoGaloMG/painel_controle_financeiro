@@ -935,43 +935,44 @@ def ui_controle_financeiro():
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
 
-    with st.expander("📜 Histórico de Transações", expanded=True):
+with st.expander("📜 Histórico de Transações", expanded=True):
+        # Primeiro, verificamos se o DataFrame NÃO está vazio
         if not df_trans.empty:
             df_para_editar = df_trans.copy()
             df_para_editar['Excluir'] = False
 
+            # O editor de dados é exibido AQUI DENTRO
             edited_df = st.data_editor(
-                        df_para_editar,
-                        use_container_width=True,
-                        column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
-                        column_config={
-                                    "id": None,  # Esconde a coluna ID da visualização
-                                    "created_at": None, # Esconde a coluna de data de criação
-                                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                                    "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
-                                    "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
-                        },
-                        hide_index=True,
-                        key="editor_transacoes"
+                df_para_editar,
+                use_container_width=True,
+                column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
+                column_config={
+                    "id": None,
+                    "created_at": None,
+                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                    "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+                    "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
+                },
+                hide_index=True,
+                key="editor_transacoes"
             )
             
-if st.button("Excluir Lançamentos Selecionados"):
-    # Esta linha define o nível de indentação base
-    linhas_para_excluir = edited_df[edited_df['Excluir']]
-    
-    # O 'for' deve começar na mesma posição da linha acima
-    for index, row in linhas_para_excluir.iterrows():
-        # O conteúdo do loop tem um nível a mais de indentação
-        transaction_id = int(row['id'])
-        delete_transaction(transaction_id)
-    
-    # O 'if' seguinte também deve estar no mesmo nível do 'for'
-    if not linhas_para_excluir.empty:
-        st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
-        st.rerun()
-    else:
-                st.warning("Nenhum lançamento foi selecionado para exclusão.")
-else:
+            # O botão e sua lógica também ficam AQUI DENTRO
+            if st.button("Excluir Lançamentos Selecionados"):
+                linhas_para_excluir = edited_df[edited_df['Excluir']]
+                
+                for index, row in linhas_para_excluir.iterrows():
+                    transaction_id = int(row['id'])
+                    delete_transaction(transaction_id)
+                
+                if not linhas_para_excluir.empty:
+                    st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
+                    st.rerun()
+                else:
+                    st.warning("Nenhum lançamento foi selecionado para exclusão.")
+        
+        # Este 'else' corresponde corretamente ao 'if not df_trans.empty:'
+        else:
             st.info("Nenhuma transação registrada no banco de dados.")
 
 # ==============================================================================
@@ -2080,7 +2081,7 @@ def ui_black_scholes():
 def main():
     """Função principal que orquestra o layout do aplicativo Streamlit."""
     st.title("Sistema de Controle Financeiro e Análise de Investimentos")
-                inicializar_session_state()
+    inicializar_session_state()
     
     # Abas para navegação entre as diferentes funcionalidades
     tab1, tab2, tab3, tab4 = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
