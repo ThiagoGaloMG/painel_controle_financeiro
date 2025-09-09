@@ -4,8 +4,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 
-# Etapa 1: Inicializar a conexão com o Supabase
-# Usamos st.cache_resource para que a conexão seja criada apenas uma vez por sessão.
+# Etapa 1: Inicializar a conexão com o Supabase (esta parte não muda)
 @st.cache_resource
 def init_connection() -> Client:
     """
@@ -23,95 +22,79 @@ def init_connection() -> Client:
 # Instancia o cliente para ser usado pelas outras funções no arquivo
 supabase_client = init_connection()
 
-# --- Etapa 2: Funções CRUD para a tabela 'transactions' ---
+# --- Etapa 2: Funções CRUD atualizadas para a tabela 'transactions' ---
 
-def fetch_transactions() -> pd.DataFrame:
+def fetch_transactions(user_id: str) -> pd.DataFrame:
     """
-    Busca todas as transações do banco de dados e as retorna como um DataFrame do Pandas.
-    Retorna um DataFrame vazio se não houver dados ou em caso de erro.
+    Busca as transações de um usuário específico do banco de dados.
     """
-    if supabase_client is None:
-        return pd.DataFrame() # Retorna DF vazio se a conexão falhou
-        
+    if supabase_client is None: return pd.DataFrame()
     try:
-        # Seleciona todas as colunas ('*') e ordena pela coluna "Data" em ordem decrescente
-        response = supabase_client.table("transactions").select("*").order("Data", desc=True).execute()
+        # A query agora filtra pela coluna 'user_id' para buscar apenas os dados do usuário logado
+        response = supabase_client.table("transactions").select("*").eq("user_id", user_id).order("Data", desc=True).execute()
         
-        # A API retorna os dados em uma lista de dicionários dentro de 'response.data'
         if response.data:
             df = pd.DataFrame(response.data)
-            # Converte a coluna de data para o tipo datetime do pandas para manipulação correta
             df['Data'] = pd.to_datetime(df['Data'])
             return df
         else:
-            # Retorna um DataFrame vazio com as colunas esperadas se a tabela estiver vazia
-            return pd.DataFrame(columns=['id', 'created_at', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'])
+            return pd.DataFrame()
             
     except Exception as e:
         st.error(f"Erro ao buscar transações: {e}")
         return pd.DataFrame()
 
-def add_transaction(data: dict):
+def add_transaction(data: dict, user_id: str):
     """
-    Adiciona uma nova transação (um dicionário) ao banco de dados.
+    Adiciona uma nova transação, associando-a a um user_id.
     """
-    if supabase_client is None:
-        return None
-
+    if supabase_client is None: return None
     try:
-        # A data vem do st.date_input como um objeto 'date', convertemos para string no formato ISO
-        data['Data'] = data['Data'].isoformat()
+        # Garante que a data está no formato de texto correto (ISO)
+        data['Data'] = pd.to_datetime(data['Data']).isoformat()
+        # Adiciona o ID do usuário ao dicionário de dados antes de inserir no banco
+        data['user_id'] = user_id
         
-        # Insere o dicionário na tabela 'transactions'
         response = supabase_client.table("transactions").insert(data).execute()
-        
-        # Limpa os caches de dados e recursos para forçar o Streamlit a buscar os novos dados
+        # Limpa o cache para forçar a busca de novos dados
         st.cache_data.clear()
-        st.cache_resource.clear()
         return response
     except Exception as e:
         st.error(f"Erro ao adicionar transação: {e}")
         return None
 
-def delete_transaction(transaction_id: int):
+def update_transaction(transaction_id: int, data: dict, user_id: str):
     """
-    Exclui uma transação do banco de dados com base em seu ID único.
+    Atualiza uma transação existente, verificando a posse do usuário.
     """
-    if supabase_client is None:
-        return None
-        
+    if supabase_client is None: return None
     try:
-        # Deleta a linha onde a coluna 'id' é igual ao 'transaction_id' fornecido
-        response = supabase_client.table("transactions").delete().eq("id", transaction_id).execute()
-        
-        # Limpa os caches para garantir que a lista de transações seja atualizada
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        return response
-    except Exception as e:
-        st.error(f"Erro ao excluir transação: {e}")
-        return None
-
-# Adicione esta função ao final do arquivo supabase_client.py
-
-def update_transaction(transaction_id: int, data: dict):
-    """
-    Atualiza uma transação existente no banco de dados com base em seu ID.
-    'data' é um dicionário com as colunas e os novos valores a serem atualizados.
-    """
-    if supabase_client is None:
-        return None
-
-    try:
-        # Garante que o formato da data está correto para o Supabase
+        # Garante que o formato da data está correto, se ela for alterada
         if 'Data' in data and hasattr(data['Data'], 'isoformat'):
             data['Data'] = pd.to_datetime(data['Data']).isoformat()
         
-        response = supabase_client.table("transactions").update(data).eq("id", transaction_id).execute()
+        # A query de update agora tem duas condições:
+        # 1. O 'id' da transação deve corresponder.
+        # 2. O 'user_id' da transação deve corresponder ao do usuário logado.
+        response = supabase_client.table("transactions").update(data).eq("id", transaction_id).eq("user_id", user_id).execute()
         
-        # Limpa o cache para forçar a busca de novos dados na próxima vez que a página for carregada
         st.cache_data.clear()
         return response
     except Exception as e:
         st.error(f"Erro ao atualizar transação: {e}")
+        return None
+
+def delete_transaction(transaction_id: int, user_id: str):
+    """
+    Exclui uma transação, verificando a posse do usuário.
+    """
+    if supabase_client is None: return None
+    try:
+        # A query de delete também verifica o ID da transação e a posse do usuário
+        response = supabase_client.table("transactions").delete().eq("id", transaction_id).eq("user_id", user_id).execute()
+        
+        st.cache_data.clear()
+        return response
+    except Exception as e:
+        st.error(f"Erro ao excluir transação: {e}")
         return None
