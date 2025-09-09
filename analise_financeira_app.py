@@ -36,7 +36,7 @@ import pandas_ta as ta
 import logging
 from typing import Dict, Any
 import json
-from supabase_client import fetch_transactions, add_transaction, delete_transaction, update_transaction
+from supabase_client import supabase_client, fetch_transactions, add_transaction, delete_transaction, update_transaction
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
 
