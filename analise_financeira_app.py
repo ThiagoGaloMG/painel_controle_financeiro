@@ -780,6 +780,10 @@ def format_large_number(num):
         return f"R$ {num/1_000:.1f}k"
     return f"R$ {num:,.2f}"
 
+def limpar_selecao_categoria():
+    """Limpa o valor selecionado no widget de categoria."""
+    st.session_state.categoria_selecionada = None
+
 def ui_controle_financeiro():
     """Renderiza a interface completa da aba de Controle Financeiro."""
     st.header("Dashboard de Controle Financeiro Pessoal")
@@ -827,10 +831,24 @@ def ui_controle_financeiro():
         with st.expander("➕ Novo Lançamento", expanded=True):
             with st.form("new_transaction_form", clear_on_submit=True):
                 data = st.date_input("Data", datetime.now(), format="DD/MM/YYYY")
-                tipo = st.selectbox("Tipo", ["Receita", "Despesa", "Investimento"])
                 
-                opcoes_categoria = st.session_state.categories.get(tipo, []) + ["--- Adicionar Nova Categoria ---"]
-                categoria_selecionada = st.selectbox("Categoria", options=opcoes_categoria, key="categoria_selectbox")
+                # Passo A: Adicionamos a key e o on_change ao seletor de TIPO
+                tipo = st.selectbox(
+                    "Tipo", 
+                    ["Receita", "Despesa", "Investimento"], 
+                    key="tipo_selecionado", 
+                    on_change=limpar_selecao_categoria
+                )
+                
+                # Usamos o valor do session_state para garantir que a lista de categorias seja a correta
+                opcoes_categoria = st.session_state.categories.get(st.session_state.tipo_selecionado, []) + ["--- Adicionar Nova Categoria ---"]
+                
+                # Passo B: Adicionamos uma key ao seletor de CATEGORIA
+                categoria_selecionada = st.selectbox(
+                    "Categoria", 
+                    options=opcoes_categoria, 
+                    key="categoria_selecionada"
+                )
                 
                 categoria_final = None
                 if categoria_selecionada == "--- Adicionar Nova Categoria ---":
@@ -846,7 +864,7 @@ def ui_controle_financeiro():
                 submitted = st.form_submit_button("Adicionar Lançamento")
 
                 if submitted and categoria_final:
-                    if tipo != "Investimento" and categoria_final not in st.session_state.categories[tipo]:
+                    if tipo != "Investimento" and categoria_final not in st.session_state.categories.get(tipo, []):
                         st.session_state.categories[tipo].append(categoria_final)
                     
                     nova_transacao_dict = {
