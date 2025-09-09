@@ -35,7 +35,7 @@ from scipy.stats import norm
 import pandas_ta as ta
 import logging
 from typing import Dict, Any
-
+from supabase_client import fetch_transactions, add_transaction, delete_transaction
 # Ignorar avisos para uma saída mais limpa
 warnings.filterwarnings('ignore')
 
