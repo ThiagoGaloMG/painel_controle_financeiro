@@ -2236,7 +2236,15 @@ def main_app():
 
 def main():
     """Função principal que decide se mostra a tela de login ou o app."""
+    
+    # Verifica se a "credencial" do usuário existe na memória da sessão
     if 'user' not in st.session_state or st.session_state.user is None:
+        # Se NÃO existir, mostra a tela de login. A função login_screen()
+        # já contém o st.stop() para parar a execução aqui.
         login_screen()
     else:
+        # Se EXISTIR, chama a função que desenha o aplicativo principal.
         main_app()
+
+if __name__ == "__main__":
+    main()
