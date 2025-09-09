@@ -750,15 +750,18 @@ def obter_historico_metrica(df_empresa, codigo_conta):
 # ==============================================================================
 
 def inicializar_session_state():
-    """Inicializa o estado da sessão para simular um banco de dados."""
-    if 'transactions' not in st.session_state:
-        st.session_state.transactions = pd.DataFrame(columns=['Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'])
+    """
+    Inicializa o estado da sessão para dados temporários como categorias e metas.
+    """
+    # Mantém a criação das categorias para os menus do aplicativo
     if 'categories' not in st.session_state:
         st.session_state.categories = {
             'Receita': ['Salário', 'Freelance'], 
             'Despesa': ['Moradia', 'Alimentação', 'Transporte', 'Saúde', 'Vestuário'], 
             'Investimento': ['Ações BR', 'REITs (FII)', 'Caixa', 'Ações Internacionais']
         }
+    
+    # Mantém a criação das metas que ainda vivem na sessão
     if 'goals' not in st.session_state:
         st.session_state.goals = {
             'Reserva de Emergência': {'meta': 10000.0, 'atual': 0.0},
@@ -775,8 +778,12 @@ def format_large_number(num):
 
 def ui_controle_financeiro():
     """Renderiza a interface completa da aba de Controle Financeiro."""
-    st.header("Dashboard de Controle Financeiro Pessoal")
-    
+    st.header("Dashboard de Controle Financeiro Pessoal"),
+    @st.cache_data
+    def load_transactions_data():
+        return fetch_transactions()
+    df_trans = load_transactions_data()
+
     col_filter1, col_filter2, col_filter3 = st.columns([1, 1, 1])
 
     data_inicio = col_filter1.date_input("Data de Início", value=datetime.now() - pd.Timedelta(days=365), format="DD/MM/YYYY")
@@ -837,10 +844,20 @@ def ui_controle_financeiro():
                 if submitted and categoria_final:
                     if tipo != "Investimento" and categoria_final not in st.session_state.categories[tipo]:
                         st.session_state.categories[tipo].append(categoria_final)
-
-                    nova_transacao = pd.DataFrame([{'Data': data, 'Tipo': tipo, 'Categoria': categoria_final, 'Subcategoria ARCA': sub_arca, 'Valor': valor, 'Descrição': descricao}])
-                    st.session_state.transactions = pd.concat([st.session_state.transactions, nova_transacao], ignore_index=True).reset_index(drop=True)
-                    st.success("Lançamento adicionado!")
+# Cria um dicionário com os dados do formulário
+                            
+                    nova_transacao_dict = {
+                                'Data': data, 
+                                'Tipo': tipo, 
+                                'Categoria': categoria_final, 
+                                'Subcategoria ARCA': sub_arca, 
+                                'Valor': valor, 
+                                'Descrição': descricao
+                    }
+                            # Chama a função do supabase_client para adicionar os dados
+                    add_transaction(nova_transacao_dict)
+                    st.success("Lançamento salvo no banco de dados!")
+                    # O st.rerun() força a atualização da página, mostrando o novo lançamento.
                     st.rerun()
     
     with col2:
@@ -921,33 +938,33 @@ def ui_controle_financeiro():
         if not df_trans.empty:
             df_para_editar = df_trans.copy()
             df_para_editar['Excluir'] = False
-            
-            colunas_config = {
-                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
-                "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
-            }
 
             edited_df = st.data_editor(
-                df_para_editar[['Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição']], 
-                use_container_width=True,
-                column_config=colunas_config,
-                hide_index=True,
-                key="editor_transacoes"
+                        df_para_editar,
+                        use_container_width=True,
+                        column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
+                        column_config={
+                                    "id": None,  # Esconde a coluna ID da visualização
+                                    "created_at": None, # Esconde a coluna de data de criação
+                                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                                    "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+                                    "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
+                        },
+                        hide_index=True,
+                        key="editor_transacoes"
             )
             
             if st.button("Excluir Lançamentos Selecionados"):
-                indices_para_excluir = edited_df[edited_df['Excluir']].index
-                st.session_state.transactions = st.session_state.transactions.drop(indices_para_excluir).reset_index(drop=True)
-                st.success("Lançamentos excluídos!")
-                st.rerun()
-
-            edited_df_sem_excluir = edited_df.drop(columns=['Excluir'])
-            st.session_state.transactions = edited_df_sem_excluir
-
+                linhas_para_excluir = edited_df[edited_df['Excluir']]
+                        for index, row in linhas_para_excluir.iterrows():
+                                    transaction_id = int(row['id'])
+                        if not linhas_para_excluir.empty:
+                                    st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
+                                    st.rerun() # Atualiza a página para mostrar a lista sem os itens excluídos
+                        else:
+                                 st.warning("Nenhum lançamento foi selecionado para exclusão.")
         else:
-            st.info("Nenhuma transação registrada.")
-
+            st.info("Nenhuma transação registrada no banco de dados.")
 
 # ==============================================================================
 # ABA 2: VALUATION
@@ -2055,7 +2072,7 @@ def ui_black_scholes():
 def main():
     """Função principal que orquestra o layout do aplicativo Streamlit."""
     st.title("Sistema de Controle Financeiro e Análise de Investimentos")
-    inicializar_session_state()
+            #    inicializar_session_state()
     
     # Abas para navegação entre as diferentes funcionalidades
     tab1, tab2, tab3, tab4 = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
