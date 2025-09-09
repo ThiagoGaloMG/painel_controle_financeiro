@@ -794,14 +794,17 @@ def ui_controle_financeiro():
 
     st.divider()
 
+    # Cria uma cópia filtrada do DataFrame principal para os cálculos e gráficos
+    df_filtrado = pd.DataFrame() # Começa como um DF vazio para evitar erros
     if not df_trans.empty:
+        # Garante que a coluna 'Data' é do tipo datetime
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
+        # Aplica os filtros de data e tipo
         df_filtrado = df_trans[(df_trans['Data'].dt.date >= data_inicio) & (df_trans['Data'].dt.date <= data_fim)]
         if tipo_filtro != "Todos":
             df_filtrado = df_filtrado[df_filtrado['Tipo'] == tipo_filtro]
-    else:
-        df_filtrado = pd.DataFrame()
 
+    # Calcula os totais com base no DataFrame já filtrado
     if not df_filtrado.empty:
         total_receitas = df_filtrado[df_filtrado['Tipo'] == 'Receita']['Valor'].sum()
         total_despesas = df_filtrado[df_filtrado['Tipo'] == 'Despesa']['Valor'].sum()
@@ -845,20 +848,17 @@ def ui_controle_financeiro():
                 if submitted and categoria_final:
                     if tipo != "Investimento" and categoria_final not in st.session_state.categories[tipo]:
                         st.session_state.categories[tipo].append(categoria_final)
-# Cria um dicionário com os dados do formulário
-                            
+                    
                     nova_transacao_dict = {
-                                'Data': data, 
-                                'Tipo': tipo, 
-                                'Categoria': categoria_final, 
-                                'Subcategoria ARCA': sub_arca, 
-                                'Valor': valor, 
-                                'Descrição': descricao
+                        'Data': data, 
+                        'Tipo': tipo, 
+                        'Categoria': categoria_final, 
+                        'Subcategoria ARCA': sub_arca, 
+                        'Valor': valor, 
+                        'Descrição': descricao
                     }
-                            # Chama a função do supabase_client para adicionar os dados
                     add_transaction(nova_transacao_dict)
                     st.success("Lançamento salvo no banco de dados!")
-                    # O st.rerun() força a atualização da página, mostrando o novo lançamento.
                     st.rerun()
     
     with col2:
@@ -888,11 +888,7 @@ def ui_controle_financeiro():
             
         st.divider()
         
-        df_investimento_filtrado = df_trans[
-            (df_trans['Tipo'] == 'Investimento') & 
-            (df_trans['Data'].dt.date >= data_inicio) & 
-            (df_trans['Data'].dt.date <= data_fim)
-        ].copy()
+        df_investimento_filtrado = df_filtrado[df_filtrado['Tipo'] == 'Investimento'].copy()
 
         patrimonio_inicial = df_trans[
             (df_trans['Data'].dt.date < data_inicio) & 
@@ -916,8 +912,8 @@ def ui_controle_financeiro():
                                                             yaxis_title='Patrimônio Total (R$)')
             st.plotly_chart(fig_evol_patrimonio_investimento, use_container_width=True)
 
-        col1, col2 = st.columns(2)
-        with col1:
+        col_graf1, col_graf2 = st.columns(2)
+        with col_graf1:
             df_monthly = df_trans.set_index('Data').groupby([pd.Grouper(freq='M'), 'Tipo'])['Valor'].sum().unstack(fill_value=0)
             fig_evol_tipo = px.bar(df_monthly, x=df_monthly.index, 
                                     y=[col for col in ['Receita', 'Despesa', 'Investimento'] if col in df_monthly.columns], 
@@ -926,7 +922,7 @@ def ui_controle_financeiro():
             fig_evol_tipo.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
                                         legend_font_color='var(--text-color)', title_font_color='var(--header-color)')
             st.plotly_chart(fig_evol_tipo, use_container_width=True)
-        with col2:
+        with col_graf2:
             df_monthly['Patrimonio'] = (df_monthly.get('Receita', 0) - df_monthly.get('Despesa', 0)).cumsum()
             fig_evol_patrimonio = px.line(df_monthly, x=df_monthly.index, y='Patrimonio', title="Evolução Patrimonial", markers=True, template="plotly_dark")
             fig_evol_patrimonio.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
@@ -935,44 +931,40 @@ def ui_controle_financeiro():
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
 
-            with st.expander("📜 Histórico de Transações", expanded=True):
-                        if not df_trans.empty:
-                                    df_para_editar = df_trans.copy()
-                                    df_para_editar['Excluir'] = False
+    with st.expander("📜 Histórico de Transações", expanded=True):
+        if not df_trans.empty:
+            df_para_editar = df_trans.copy()
+            df_para_editar['Excluir'] = False
+
+            edited_df = st.data_editor(
+                df_para_editar,
+                use_container_width=True,
+                column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
+                column_config={
+                    "id": None,
+                    "created_at": None,
+                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                    "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+                    "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
+                },
+                hide_index=True,
+                key="editor_transacoes"
+            )
             
-                        # O editor de dados é exibido AQUI DENTRO
-                        edited_df = st.data_editor(
-                            df_para_editar,
-                            use_container_width=True,
-                            column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
-                            column_config={
-                                "id": None,
-                                "created_at": None,
-                                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                                "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
-                                "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
-                            },
-                            hide_index=True,
-                            key="editor_transacoes"
-                        )
-                        
-                        # O botão e sua lógica também ficam AQUI DENTRO
-                        if st.button("Excluir Lançamentos Selecionados"):
-                            linhas_para_excluir = edited_df[edited_df['Excluir']]
-                            
-                            for index, row in linhas_para_excluir.iterrows():
-                                transaction_id = int(row['id'])
-                                delete_transaction(transaction_id)
-                            
-                            if not linhas_para_excluir.empty:
-                                st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
-                                st.rerun()
-                            else:
-                                st.warning("Nenhum lançamento foi selecionado para exclusão.")
-                    
-                    # Este 'else' corresponde corretamente ao 'if not df_trans.empty:'
-                    else:
-                        st.info("Nenhuma transação registrada no banco de dados.")
+            if st.button("Excluir Lançamentos Selecionados"):
+                linhas_para_excluir = edited_df[edited_df['Excluir']]
+                
+                for index, row in linhas_para_excluir.iterrows():
+                    transaction_id = int(row['id'])
+                    delete_transaction(transaction_id)
+                
+                if not linhas_para_excluir.empty:
+                    st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
+                    st.rerun()
+                else:
+                    st.warning("Nenhum lançamento foi selecionado para exclusão.")
+        else:
+            st.info("Nenhuma transação registrada no banco de dados.")
 
 # ==============================================================================
 # ABA 2: VALUATION
