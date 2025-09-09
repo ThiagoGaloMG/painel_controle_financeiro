@@ -792,7 +792,6 @@ def ui_controle_financeiro():
 
     st.divider()
 
-    df_trans = st.session_state.transactions.copy()
     if not df_trans.empty:
         df_trans['Data'] = pd.to_datetime(df_trans['Data'])
         df_filtrado = df_trans[(df_trans['Data'].dt.date >= data_inicio) & (df_trans['Data'].dt.date <= data_fim)]
@@ -956,8 +955,11 @@ def ui_controle_financeiro():
             
             if st.button("Excluir Lançamentos Selecionados"):
                 linhas_para_excluir = edited_df[edited_df['Excluir']]
+                        
                         for index, row in linhas_para_excluir.iterrows():
                                     transaction_id = int(row['id'])
+                                    delete_transaction(transaction_id)
+                                    
                         if not linhas_para_excluir.empty:
                                     st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
                                     st.rerun() # Atualiza a página para mostrar a lista sem os itens excluídos
@@ -2072,7 +2074,7 @@ def ui_black_scholes():
 def main():
     """Função principal que orquestra o layout do aplicativo Streamlit."""
     st.title("Sistema de Controle Financeiro e Análise de Investimentos")
-            #    inicializar_session_state()
+                inicializar_session_state()
     
     # Abas para navegação entre as diferentes funcionalidades
     tab1, tab2, tab3, tab4 = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
