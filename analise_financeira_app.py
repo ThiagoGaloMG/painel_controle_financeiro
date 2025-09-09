@@ -935,44 +935,44 @@ def ui_controle_financeiro():
     else:
         st.info("Adicione transações para visualizar os gráficos de evolução.")
 
-with st.expander("📜 Histórico de Transações", expanded=True):
-            if not df_trans.empty:
-                        df_para_editar = df_trans.copy()
-                        df_para_editar['Excluir'] = False
-
-            # O editor de dados é exibido AQUI DENTRO
-            edited_df = st.data_editor(
-                df_para_editar,
-                use_container_width=True,
-                column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
-                column_config={
-                    "id": None,
-                    "created_at": None,
-                    "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                    "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
-                    "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
-                },
-                hide_index=True,
-                key="editor_transacoes"
-            )
+            with st.expander("📜 Histórico de Transações", expanded=True):
+                        if not df_trans.empty:
+                                    df_para_editar = df_trans.copy()
+                                    df_para_editar['Excluir'] = False
             
-            # O botão e sua lógica também ficam AQUI DENTRO
-            if st.button("Excluir Lançamentos Selecionados"):
-                linhas_para_excluir = edited_df[edited_df['Excluir']]
-                
-                for index, row in linhas_para_excluir.iterrows():
-                    transaction_id = int(row['id'])
-                    delete_transaction(transaction_id)
-                
-                if not linhas_para_excluir.empty:
-                    st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
-                    st.rerun()
-                else:
-                    st.warning("Nenhum lançamento foi selecionado para exclusão.")
-        
-        # Este 'else' corresponde corretamente ao 'if not df_trans.empty:'
-        else:
-            st.info("Nenhuma transação registrada no banco de dados.")
+                        # O editor de dados é exibido AQUI DENTRO
+                        edited_df = st.data_editor(
+                            df_para_editar,
+                            use_container_width=True,
+                            column_order=('Excluir', 'Data', 'Tipo', 'Categoria', 'Subcategoria ARCA', 'Valor', 'Descrição'),
+                            column_config={
+                                "id": None,
+                                "created_at": None,
+                                "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                                "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+                                "Subcategoria ARCA": st.column_config.TextColumn("ARCA")
+                            },
+                            hide_index=True,
+                            key="editor_transacoes"
+                        )
+                        
+                        # O botão e sua lógica também ficam AQUI DENTRO
+                        if st.button("Excluir Lançamentos Selecionados"):
+                            linhas_para_excluir = edited_df[edited_df['Excluir']]
+                            
+                            for index, row in linhas_para_excluir.iterrows():
+                                transaction_id = int(row['id'])
+                                delete_transaction(transaction_id)
+                            
+                            if not linhas_para_excluir.empty:
+                                st.success(f"{len(linhas_para_excluir)} lançamento(s) excluído(s) do banco de dados!")
+                                st.rerun()
+                            else:
+                                st.warning("Nenhum lançamento foi selecionado para exclusão.")
+                    
+                    # Este 'else' corresponde corretamente ao 'if not df_trans.empty:'
+                    else:
+                        st.info("Nenhuma transação registrada no banco de dados.")
 
 # ==============================================================================
 # ABA 2: VALUATION
