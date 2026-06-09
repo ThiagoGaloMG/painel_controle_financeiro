@@ -1,6 +1,5 @@
 {
-  "name": "Python 3",
-  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+  "name": "Painel Financeiro - Python 3.11",
   "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bullseye",
   "customizations": {
     "codespaces": {
@@ -10,20 +9,24 @@
       ]
     },
     "vscode": {
-      "settings": {},
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "editor.formatOnSave": true
+      },
       "extensions": [
         "ms-python.python",
-        "ms-python.vscode-pylance"
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff"
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  "updateContentCommand": "[ -f packages.txt ] && sudo apt-get update && sudo xargs apt-get install -y < packages.txt || echo 'Sem pacotes de SO adicionais'; pip install --no-cache-dir -r requirements.txt",
   "postAttachCommand": {
     "server": "streamlit run analise_financeira_app.py --server.enableCORS false --server.enableXsrfProtection false"
   },
   "portsAttributes": {
     "8501": {
-      "label": "Application",
+      "label": "Aplicação Streamlit",
       "onAutoForward": "openPreview"
     }
   },
