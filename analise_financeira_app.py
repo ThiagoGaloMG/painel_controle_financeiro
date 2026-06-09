@@ -338,8 +338,8 @@ CONFIG["DIRETORIO_DADOS_EXTRAIDOS"] = CONFIG["DIRETORIO_BASE"] / "CVM_EXTRACTED"
 
 def requests_retry_session(
     retries=3,
-    backoff_factor=0.3,
-    status_forcelist=(500, 502, 504),
+    backoff_factor=0.5,
+    status_forcelist=(429, 500, 502, 504),
     session=None,
 ):
     """Cria uma sessão de requests com retentativa automática."""
