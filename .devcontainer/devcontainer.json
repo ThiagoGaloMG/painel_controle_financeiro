@@ -1,6 +1,6 @@
 {
-  "name": "Painel Financeiro - Python 3.11",
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bullseye",
+  "name": "Painel Financeiro - Python 3.13",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.13-bullseye",
   "customizations": {
     "codespaces": {
       "openFiles": [
