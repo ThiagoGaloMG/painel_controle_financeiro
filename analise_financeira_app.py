@@ -136,7 +136,11 @@ def load_transactions_data():
 st.set_page_config(layout="wide", page_title="Painel de Controle Financeiro", page_icon="📈")
 
 # Chave da API Alpha Vantage
-ALPHA_VANTAGE_API_KEY = "G34YKVWF0XCPVMZV"
+try:
+    ALPHA_VANTAGE_API_KEY = st.secrets["API_KEYS"]["ALPHA_VANTAGE"]
+except Exception:
+    # Fallback apenas para não quebrar localmente se esquecer de configurar
+    ALPHA_VANTAGE_API_KEY = "G34YKVWF0XCPVMZV"
 
 # Estilo CSS aprimorado para temas claro e escuro, com melhor UX
 st.markdown("""
@@ -866,17 +870,6 @@ def format_large_number(num):
     if abs(num) >= 1_000:
         return f"R$ {num/1_000:.1f}k"
     return f"R$ {num:,.2f}"
-
-# Adicione esta função ANTES de ui_controle_financeiro, no escopo global
-def limpar_selecao_categoria():
-    """Define o valor do widget de categoria como o primeiro da lista de opções."""
-    # Pega o tipo recém-selecionado do session_state
-    tipo_selecionado = st.session_state.get("tipo_selecionado", "Receita")
-    # Pega a lista de categorias para esse tipo
-    opcoes = st.session_state.categories.get(tipo_selecionado, [])
-    # Define o widget de categoria para a primeira opção da lista
-    if opcoes:
-        st.session_state.categoria_selecionada = opcoes[0]
 
 # Adicione esta função ANTES de ui_controle_financeiro, no escopo global
 def limpar_selecao_categoria():
@@ -2210,27 +2203,6 @@ def login_screen():
                     except Exception as e:
                         st.error(f"Erro ao criar conta: {e}")
     st.stop()
-def main_app():
-    """Mostra o aplicativo principal após o login."""
-    st.sidebar.write(f"Logado como: {st.session_state.user.user.email}")
-    if st.sidebar.button("Sair (Logout)"):
-        st.session_state.user = None
-        st.rerun()
-
-    # Seu código original do painel começa aqui
-    st.title("Sistema de Controle Financeiro e Análise de Investimentos")
-    inicializar_session_state()
-    
-    tabs = st.tabs(["💲 Controle Financeiro", "📈 Análise de Valuation", "🔬 Modelo Fleuriet", "🤖 Black-Scholes"])
-    
-    with tabs[0]:
-        ui_controle_financeiro()
-    with tabs[1]:
-        ui_valuation()
-    with tabs[2]:
-        ui_modelo_fleuriet()
-    with tabs[3]:
-        ui_black_scholes()
 
 def main_app():
     """Mostra o aplicativo principal após o login."""
