@@ -4,7 +4,7 @@ numpy<2.0.0
 yfinance==0.2.65
 requests==2.32.5
 scipy==1.16.1
-pandas-ta>=0.3.14
+pandas-ta-classic
 plotly==6.3.0
 tenacity==9.1.2
 setuptools==80.9.0
