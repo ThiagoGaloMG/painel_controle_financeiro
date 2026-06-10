@@ -2,7 +2,7 @@ numpy<2.0.0
 pandas==2.2.2
 scipy==1.13.1
 yfinance==0.2.40
-pandas-ta>=0.3.14
+git+https://github.com/twopirllc/pandas-ta.git
 plotly==5.22.0
 streamlit==1.38.0
 supabase==2.5.0
