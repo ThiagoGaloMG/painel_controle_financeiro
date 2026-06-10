@@ -32,7 +32,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from tenacity import retry, wait_exponential, stop_after_attempt, RetryError
 from scipy.stats import norm
-import pandas_ta as ta
+import pandas_ta_classic as ta
 import logging
 from typing import Dict, Any
 import json
